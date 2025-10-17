@@ -4,140 +4,143 @@ import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import cron from 'node-cron';
 import moment from 'moment-timezone';
+import bodyParser from 'body-parser';
+import dotenv from 'dotenv';
 
-const PORT = process.env.PORT || 3000;
+dotenv.config();
+
+const PORT = process.env.PORT || 10000;
 const TZ = process.env.TIMEZONE || 'Asia/Taipei';
 const USER_ID = process.env.USER_ID;
+const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 
-if (!process.env.LINE_CHANNEL_SECRET || !process.env.LINE_CHANNEL_ACCESS_TOKEN || !USER_ID) {
+if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_CHANNEL_SECRET || !USER_ID) {
   console.error('請先設定環境變數 LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN 與 USER_ID');
   process.exit(1);
 }
 
 const config = {
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: LINE_CHANNEL_SECRET,
 };
 
 const client = new Client(config);
+
 const app = express();
+app.use(bodyParser.json());
+app.use(middleware(config));
 
-// LINE webhook middleware
-app.post('/webhook', middleware(config), async (req, res) => {
-  try {
-    const events = req.body.events;
-    for (const event of events) {
-      if (event.type !== 'message' || event.message.type !== 'text') continue;
-      const text = event.message.text.trim();
-      const replyToken = event.replyToken;
-
-      // /幫助
-      if (text === '/幫助') {
-        await client.replyMessage(replyToken, {
-          type: 'text',
-          text: `
-/幫助：顯示說明
-/設定 王名 間隔(小時)：設定重生間隔
-/死亡 王名 時間：記錄死亡時間
-/BOSS：查詢所有王的狀態與最快重生
-/刪除 王名：刪除王
-          `,
-        });
-      }
-
-      // /設定 王名 間隔(小時)
-      else if (text.startsWith('/設定 ')) {
-        const [, bossName, intervalStr] = text.split(' ');
-        const interval = parseFloat(intervalStr);
-        if (!bossName || isNaN(interval)) {
-          await client.replyMessage(replyToken, { type: 'text', text: '格式錯誤，正確：/設定 王名 間隔(小時)' });
-        } else {
-          const now = moment().tz(TZ).toISOString();
-          await db.run(
-            `INSERT INTO boss_status(boss, respawn_interval_hours, last_death_iso, last_alert_sent_notify_iso)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(boss) DO UPDATE SET respawn_interval_hours=?, last_death_iso=?, last_alert_sent_notify_iso=?`,
-            bossName, interval, now, null, interval, now, null
-          );
-          await client.replyMessage(replyToken, { type: 'text', text: `已設定 ${bossName} 間隔 ${interval} 小時` });
-        }
-      }
-
-      // /死亡 王名 時間
-      else if (text.startsWith('/死亡 ')) {
-        const [, bossName, timeStr] = text.split(' ');
-        const deathTime = timeStr ? moment.tz(timeStr, 'HH:mm', TZ).toISOString() : moment().tz(TZ).toISOString();
-        await db.run(
-          `UPDATE boss_status SET last_death_iso=?, last_alert_sent_notify_iso=NULL WHERE boss=?`,
-          deathTime, bossName
-        );
-        await client.replyMessage(replyToken, { type: 'text', text: `已記錄 ${bossName} 死亡時間 ${deathTime}` });
-      }
-
-      // /BOSS
-      else if (text === '/BOSS') {
-        const bosses = await db.all(`SELECT * FROM boss_status`);
-        const now = moment().tz(TZ);
-        const lines = bosses.map(b => {
-          const lastDeath = moment(b.last_death_iso).tz(TZ);
-          const nextSpawn = lastDeath.clone().add(b.respawn_interval_hours, 'hours');
-          const diffMin = Math.max(0, nextSpawn.diff(now, 'minutes'));
-          return `${b.boss}：${diffMin} 分鐘後重生（預定 ${nextSpawn.format('HH:mm')}）`;
-        }).sort((a,b)=>a.localeCompare(b));
-        await client.replyMessage(replyToken, { type: 'text', text: lines.join('\n') || '目前沒有王資料' });
-      }
-
-      // /刪除 王名
-      else if (text.startsWith('/刪除 ')) {
-        const [, bossName] = text.split(' ');
-        await db.run(`DELETE FROM boss_status WHERE boss=?`, bossName);
-        await client.replyMessage(replyToken, { type: 'text', text: `已刪除 ${bossName}` });
-      }
-    }
-    res.sendStatus(200);
-  } catch (err) {
-    console.error(err);
-    res.sendStatus(500);
-  }
-});
-
-// SQLite 初始化
 let db;
-(async () => {
-  db = await open({ filename: './bot.db', driver: sqlite3.Database });
-  await db.run(`CREATE TABLE IF NOT EXISTS boss_status(
+
+async function initDB() {
+  db = await open({
+    filename: './bot.db',
+    driver: sqlite3.Database,
+  });
+  await db.run(`CREATE TABLE IF NOT EXISTS boss_status (
     boss TEXT PRIMARY KEY,
-    respawn_interval_hours REAL NOT NULL,
-    last_death_iso TEXT NOT NULL,
-    last_alert_sent_notify_iso TEXT
+    interval_hours INTEGER,
+    last_dead_iso TEXT,
+    next_spawn_iso TEXT,
+    alert_10min_sent INTEGER DEFAULT 0
   )`);
   console.log('✅ SQLite 已連線並確保表格存在');
-})();
+}
 
-// cron 每分鐘檢查前 10 分鐘推播
-cron.schedule('* * * * *', async () => {
-  if (!db) return;
-  const bosses = await db.all(`SELECT * FROM boss_status`);
+await initDB();
+
+// 推播提醒
+async function checkBosses() {
   const now = moment().tz(TZ);
+  const bosses = await db.all(`SELECT * FROM boss_status WHERE next_spawn_iso IS NOT NULL`);
   for (const b of bosses) {
-    const lastDeath = moment(b.last_death_iso).tz(TZ);
-    const nextSpawn = lastDeath.clone().add(b.respawn_interval_hours, 'hours');
-    const diffMin = nextSpawn.diff(now, 'minutes');
-
-    if (diffMin <= 10 && diffMin > 9 && !b.last_alert_sent_notify_iso) {
-      // 前10分鐘推播
-      try {
-        await client.pushMessage(USER_ID, {
-          type: 'text',
-          text: `@ALL ⚔️ ${b.boss} 即將在 10 分鐘後重生！（預定 ${nextSpawn.format('HH:mm')}）`,
-        });
-        await db.run(`UPDATE boss_status SET last_alert_sent_notify_iso=? WHERE boss=?`, now.toISOString(), b.boss);
-        console.log(`推播前10分鐘：${b.boss}`);
-      } catch (err) {
-        console.error('cron db read error', err);
-      }
+    const nextSpawn = moment.tz(b.next_spawn_iso, TZ);
+    const diffMinutes = nextSpawn.diff(now, 'minutes');
+    if (diffMinutes <= 10 && diffMinutes > 0 && b.alert_10min_sent === 0) {
+      const message = {
+        type: 'text',
+        text: `@ALL ⚔️ ${b.boss} 即將在 ${diffMinutes} 分鐘後重生！（預定 ${nextSpawn.format('HH:mm')}）`,
+      };
+      await client.pushMessage(USER_ID, message);
+      await db.run(`UPDATE boss_status SET alert_10min_sent = 1 WHERE boss = ?`, b.boss);
     }
   }
+}
+
+cron.schedule('* * * * *', checkBosses);
+
+// LINE事件處理
+app.post('/webhook', async (req, res) => {
+  const events = req.body.events;
+  if (!events) return res.sendStatus(200);
+
+  for (const event of events) {
+    if (event.type !== 'message' || event.message.type !== 'text') continue;
+
+    const text = event.message.text.trim();
+    const replyToken = event.replyToken;
+
+    if (text === '/幫助') {
+      await client.replyMessage(replyToken, {
+        type: 'text',
+        text: `/幫助\n/設定 王名 間隔(小時)\n/死亡 王名 時間\n/BOSS\n/刪除 王名\n/我的ID`,
+      });
+    } else if (text.startsWith('/設定 ')) {
+      const [, boss, interval] = text.match(/^\/設定\s+(\S+)\s+(\d+)/) || [];
+      if (boss && interval) {
+        const nextSpawn = moment().add(Number(interval), 'hours').tz(TZ).toISOString();
+        await db.run(
+          `INSERT INTO boss_status (boss, interval_hours, last_dead_iso, next_spawn_iso, alert_10min_sent)
+           VALUES (?, ?, NULL, ?, 0)
+           ON CONFLICT(boss) DO UPDATE SET interval_hours = ?, next_spawn_iso = ?, alert_10min_sent = 0`,
+          boss, Number(interval), nextSpawn, Number(interval), nextSpawn
+        );
+        await client.replyMessage(replyToken, { type: 'text', text: `設定 ${boss} 重生間隔 ${interval} 小時` });
+      } else {
+        await client.replyMessage(replyToken, { type: 'text', text: '指令格式錯誤' });
+      }
+    } else if (text.startsWith('/死亡 ')) {
+      const [, boss, time] = text.match(/^\/死亡\s+(\S+)\s*(\S*)/) || [];
+      if (boss) {
+        const deadTime = time ? moment.tz(time, 'HH:mm', TZ) : moment().tz(TZ);
+        const bossData = await db.get(`SELECT interval_hours FROM boss_status WHERE boss = ?`, boss);
+        if (!bossData) {
+          await client.replyMessage(replyToken, { type: 'text', text: `${boss} 尚未設定` });
+          continue;
+        }
+        const nextSpawn = deadTime.clone().add(bossData.interval_hours, 'hours').toISOString();
+        await db.run(
+          `UPDATE boss_status SET last_dead_iso = ?, next_spawn_iso = ?, alert_10min_sent = 0 WHERE boss = ?`,
+          deadTime.toISOString(), nextSpawn, boss
+        );
+        await client.replyMessage(replyToken, { type: 'text', text: `${boss} 記錄死亡，下一次重生預定 ${moment(nextSpawn).tz(TZ).format('HH:mm')}` });
+      } else {
+        await client.replyMessage(replyToken, { type: 'text', text: '指令格式錯誤' });
+      }
+    } else if (text === '/BOSS') {
+      const bosses = await db.all(`SELECT * FROM boss_status ORDER BY next_spawn_iso ASC`);
+      let msg = '';
+      for (const b of bosses) {
+        const next = b.next_spawn_iso ? moment.tz(b.next_spawn_iso, TZ).format('HH:mm') : '未設定';
+        msg += `${b.boss} -> 下次重生: ${next}\n`;
+      }
+      await client.replyMessage(replyToken, { type: 'text', text: msg || '尚無資料' });
+    } else if (text.startsWith('/刪除 ')) {
+      const [, boss] = text.match(/^\/刪除\s+(\S+)/) || [];
+      if (boss) {
+        await db.run(`DELETE FROM boss_status WHERE boss = ?`, boss);
+        await client.replyMessage(replyToken, { type: 'text', text: `${boss} 已刪除` });
+      } else {
+        await client.replyMessage(replyToken, { type: 'text', text: '指令格式錯誤' });
+      }
+    } else if (text === '/我的ID') {
+      const userId = event.source.userId || '無法取得ID';
+      await client.replyMessage(replyToken, { type: 'text', text: `你的ID: ${userId}` });
+    }
+  }
+
+  res.sendStatus(200);
 });
 
 app.listen(PORT, () => {
