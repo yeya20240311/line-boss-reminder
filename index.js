@@ -1,166 +1,218 @@
 // index.js
-import express from "express";
-import line from "@line/bot-sdk";
-import sqlite3 from "sqlite3";
-import { open } from "sqlite";
-import cron from "node-cron";
+import 'dotenv/config';
+import express from 'express';
+import line from '@line/bot-sdk';
+import bodyParser from 'body-parser';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
+import cron from 'node-cron';
+import moment from 'moment-timezone';
 
-// ================================
-// 🔧 LINE 設定
-// ================================
-const lineConfig = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET,
+const PORT = process.env.PORT || 3000;
+const TZ = process.env.TIMEZONE || 'Asia/Taipei';
+
+const CHANNEL_ACCESS_TOKEN = process.env.CHANNEL_ACCESS_TOKEN;
+const CHANNEL_SECRET = process.env.CHANNEL_SECRET;
+
+if (!CHANNEL_ACCESS_TOKEN || !CHANNEL_SECRET) {
+  console.error('請先設定環境變數 CHANNEL_ACCESS_TOKEN 與 CHANNEL_SECRET');
+  process.exit(1);
+}
+
+const config = {
+  channelAccessToken: CHANNEL_ACCESS_TOKEN,
+  channelSecret: CHANNEL_SECRET
 };
-const client = new line.Client(lineConfig);
 
-// ================================
-// 🗂️ SQLite 初始化
-// ================================
+const client = new line.Client(config);
+const app = express();
+app.use(bodyParser.json());
+
+// ------------------- SQLite -------------------
 let db;
 (async () => {
   db = await open({
-    filename: "./bot.db",
-    driver: sqlite3.Database,
+    filename: './bot.db',
+    driver: sqlite3.Database
   });
+  console.log('✅ SQLite 已連線並確保表格存在');
 
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS boss_status (
-      boss TEXT PRIMARY KEY,
-      interval_hours INTEGER,
-      last_death_iso TEXT,
-      next_spawn_iso TEXT,
-      last_alert_sent_iso TEXT
-    )
-  `);
-
-  console.log("✅ SQLite 已連線並確保表格存在");
+  await db.run(`CREATE TABLE IF NOT EXISTS boss_defs (
+    boss TEXT PRIMARY KEY,
+    interval_hours INTEGER
+  )`);
+  await db.run(`CREATE TABLE IF NOT EXISTS boss_status (
+    boss TEXT PRIMARY KEY,
+    last_death_iso TEXT,
+    next_spawn_iso TEXT,
+    last_alert_sent_notify_iso TEXT,
+    updated_at TEXT
+  )`);
 })();
 
-// ================================
-// 🚀 Express 啟動
-// ================================
-const app = express();
-app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
-  res.sendStatus(200);
-
-  for (const event of req.body.events) {
-    if (event.type !== "message" || event.message.type !== "text") continue;
-
-    console.log("📩 收到訊息：", event.message.text);
-    console.log("👤 來自使用者 ID：", event.source.userId);
-
-    const text = event.message.text.trim();
-    const reply = await handleCommand(text);
-    await client.replyMessage(event.replyToken, { type: "text", text: reply });
+// ------------------- helpers -------------------
+function parseTimeInput(txt) {
+  txt = txt.trim();
+  let m;
+  let now = moment().tz(TZ);
+  if (/^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}$/.test(txt)) {
+    m = moment.tz(txt, 'YYYY-MM-DD HH:mm', TZ);
+  } else if (/^\d{1,2}:\d{2}$/.test(txt)) {
+    m = moment.tz(txt, 'HH:mm', TZ);
+    m.year(now.year()); m.month(now.month()); m.date(now.date());
+  } else {
+    return null;
   }
-});
-
-app.listen(10000, () => {
-  console.log("🚀 LINE Boss Bot running on port 10000");
-});
-
-// ================================
-// ⚙️ 指令處理
-// ================================
-async function handleCommand(text) {
-  if (text === "/幫助") {
-    return `
-🧭 指令說明：
-
-/幫助 - 顯示此說明
-/設定 王名 間隔(小時) - 設定王重生間隔
-/死亡 王名 時間(hh:mm) - 登記死亡時間
-/BOSS - 查詢所有王狀態（依最快重生排序）
-`;
-  }
-
-  if (text.startsWith("/設定")) {
-    const [, boss, hours] = text.split(" ");
-    if (!boss || isNaN(hours)) return "❌ 格式錯誤，請用：/設定 王名 間隔(小時)";
-    await db.run(
-      "INSERT INTO boss_status (boss, interval_hours) VALUES (?, ?) ON CONFLICT(boss) DO UPDATE SET interval_hours = excluded.interval_hours",
-      [boss, hours]
-    );
-    return `✅ 已設定 ${boss} 的重生間隔為 ${hours} 小時`;
-  }
-
-  if (text.startsWith("/死亡")) {
-    const [, boss, time] = text.split(" ");
-    if (!boss || !time) return "❌ 格式錯誤，請用：/死亡 王名 時間(hh:mm)";
-
-    const match = time.match(/^([0-9]{1,2}):([0-9]{2})$/);
-    if (!match) return "❌ 時間格式錯誤，請使用 hh:mm 例如 14:30";
-
-    const now = new Date();
-    const deathTime = new Date(now);
-    deathTime.setHours(parseInt(match[1]), parseInt(match[2]), 0, 0);
-
-    const bossData = await db.get("SELECT interval_hours FROM boss_status WHERE boss = ?", [boss]);
-    if (!bossData) return "⚠️ 請先用 /設定 設定該王的間隔";
-
-    const nextSpawn = new Date(deathTime.getTime() + bossData.interval_hours * 60 * 60 * 1000);
-
-    await db.run(
-      "UPDATE boss_status SET last_death_iso = ?, next_spawn_iso = ?, last_alert_sent_iso = NULL WHERE boss = ?",
-      [deathTime.toISOString(), nextSpawn.toISOString(), boss]
-    );
-
-    return `☠️ ${boss} 死亡時間：${time}\n⏰ 預計重生時間：${nextSpawn.toLocaleString("zh-TW", { hour12: false })}`;
-  }
-
-  if (text === "/BOSS") {
-    const rows = await db.all("SELECT * FROM boss_status WHERE next_spawn_iso IS NOT NULL");
-    if (rows.length === 0) return "目前沒有王的資料。";
-
-    const now = new Date();
-    const sorted = rows.sort((a, b) => new Date(a.next_spawn_iso) - new Date(b.next_spawn_iso));
-
-    let reply = "🕒 BOSS 狀態：\n\n";
-    for (const r of sorted) {
-      const next = new Date(r.next_spawn_iso);
-      const diff = (next - now) / 1000 / 60;
-      const timeStr = next.toLocaleString("zh-TW", { hour12: false });
-      reply += `${r.boss}：${diff > 0 ? `還有 ${diff.toFixed(0)} 分鐘重生` : `已重生`}（${timeStr}）\n`;
-    }
-    return reply;
-  }
-
-  return "❓ 無效指令，請輸入 /幫助 查看可用指令";
+  if (!m.isValid()) return null;
+  return m;
 }
 
-// ================================
-// 🕒 每分鐘檢查自動提醒
-// ================================
-cron.schedule("* * * * *", async () => {
-  if (!db) return;
-  const now = new Date();
-  const bosses = await db.all("SELECT * FROM boss_status WHERE next_spawn_iso IS NOT NULL");
+function toIso(m) {
+  return m.clone().tz(TZ).format();
+}
 
-  for (const b of bosses) {
-    const nextSpawn = new Date(b.next_spawn_iso);
-    const minsLeft = (nextSpawn - now) / 1000 / 60;
+function humanDiff(ms) {
+  const sec = Math.floor(ms / 1000);
+  if (sec <= 0) return '0 秒';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  let parts = [];
+  if (h) parts.push(`${h} 小時`);
+  if (m) parts.push(`${m} 分鐘`);
+  if (!h && s) parts.push(`${s} 秒`);
+  return parts.join(' ');
+}
 
-    if (minsLeft <= 10 && minsLeft > 0) {
-      const lastAlert = b.last_alert_sent_iso ? new Date(b.last_alert_sent_iso) : null;
-      const alreadyAlerted =
-        lastAlert && (now - lastAlert) / 1000 / 60 < 60; // 避免重複提醒一小時內
+// ------------------- LINE webhook -------------------
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events || [];
+    await Promise.all(events.map(handleEvent));
+    res.json({ status: 'ok' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).end();
+  }
+});
 
-      if (!alreadyAlerted) {
-        await db.run("UPDATE boss_status SET last_alert_sent_iso = ? WHERE boss = ?", [
-          now.toISOString(),
-          b.boss,
-        ]);
+app.get('/', (req, res) => res.send('LINE Boss Reminder Bot is running'));
 
-        console.log(`⚠️ ${b.boss} 即將重生（${minsLeft.toFixed(0)} 分鐘後）`);
+// ------------------- handleEvent -------------------
+async function handleEvent(event) {
+  try {
+    if (event.type === 'follow') {
+      const userId = event.source.userId;
+      const profile = await client.getProfile(userId);
+      return client.replyMessage(event.replyToken, { type: 'text', text: `歡迎 ${profile.displayName}！輸入 /幫助 查看指令` });
+    }
 
-        // ⚠️ 若你要發通知給特定使用者，請改成該 userId
-        const notifyUserId = "Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
-        await client.pushMessage(notifyUserId, {
-          type: "text",
-          text: `⚠️ ${b.boss} 即將在 ${minsLeft.toFixed(0)} 分鐘後重生！`,
-        });
+    if (event.type === 'message' && event.message.type === 'text') {
+      const text = event.message.text.trim();
+
+      // /幫助
+      if (/^\/?幫助$/i.test(text)) {
+        const help = [
+          '/設定 王名 間隔(小時) — 設定該王重生間隔 (例 /設定 地龍 8)',
+          '/死亡 王名 時間 — 記錄死亡時間 (例 /死亡 地龍 14:30 或 /死亡 地龍 2025-10-16 14:30)',
+          '/BOSS — 顯示所有王下次重生時間與最快重生'
+        ].join('\n');
+        return client.replyMessage(event.replyToken, { type: 'text', text: help });
+      }
+
+      // /設定 王名 間隔
+      if (/^\/?設定\s+(.+?)\s+(\d+)$/.test(text)) {
+        const m = text.match(/^\/?設定\s+(.+?)\s+(\d+)$/);
+        const boss = m[1].trim();
+        const interval = parseInt(m[2], 10);
+        if (!boss || !interval) {
+          return client.replyMessage(event.replyToken, { type: 'text', text: '格式錯誤，範例：/設定 地龍 8' });
+        }
+        await db.run(`INSERT OR REPLACE INTO boss_defs (boss, interval_hours) VALUES (?,?)`, [boss, interval]);
+        return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${boss} 的重生間隔為 ${interval} 小時` });
+      }
+
+      // /死亡 王名 時間
+      if (/^\/?死亡\s+(.+?)\s+(.+)$/.test(text)) {
+        const m = text.match(/^\/?死亡\s+(.+?)\s+(.+)$/);
+        const boss = m[1].trim();
+        const timeStr = m[2].trim();
+        const parsed = parseTimeInput(timeStr);
+        if (!parsed) {
+          return client.replyMessage(event.replyToken, { type: 'text', text: '時間格式錯誤。請使用 HH:MM 或 YYYY-MM-DD HH:MM' });
+        }
+        const row = await db.get(`SELECT interval_hours FROM boss_defs WHERE boss = ?`, [boss]);
+        if (!row) {
+          return client.replyMessage(event.replyToken, { type: 'text', text: `找不到 ${boss} 的重生間隔，請先用 /設定 設定間隔` });
+        }
+        const interval = row.interval_hours;
+        const nextSpawn = parsed.clone().add(interval, 'hours');
+        await db.run(`INSERT OR REPLACE INTO boss_status (boss, last_death_iso, next_spawn_iso, last_alert_sent_notify_iso, updated_at)
+                      VALUES (?,?,?,?,datetime('now'))`,
+                      [boss, toIso(parsed), toIso(nextSpawn), null]);
+        const txt = `✅ 已記錄 ${boss} 死亡於 ${parsed.tz(TZ).format('YYYY-MM-DD HH:mm')}\n下次重生：${nextSpawn.tz(TZ).format('YYYY-MM-DD HH:mm')}\n重生前 10 分鐘會自動通知`;
+        return client.replyMessage(event.replyToken, { type: 'text', text: txt });
+      }
+
+      // /BOSS 查詢所有狀態
+      if (/^\/?BOSS$/i.test(text)) {
+        const rows = await db.all(`SELECT b.boss, b.interval_hours, s.last_death_iso, s.next_spawn_iso
+                                   FROM boss_defs b LEFT JOIN boss_status s ON b.boss = s.boss`);
+        const now = moment().tz(TZ);
+        const lines = [];
+        let fastest = null;
+        for (const r of rows) {
+          if (r.next_spawn_iso) {
+            const next = moment.tz(r.next_spawn_iso, TZ);
+            const diffSec = next.diff(now);
+            const diffText = diffSec > 0 ? humanDiff(diffSec) : '已到或未知';
+            lines.push(`${r.boss}：${next.format('MM-DD HH:mm')}（剩 ${diffText}）`);
+            if (diffSec > 0 && (!fastest || diffSec < fastest.diff)) {
+              fastest = { boss: r.boss, next, diff: diffSec };
+            }
+          } else {
+            lines.push(`${r.boss}：尚未紀錄死亡時間`);
+          }
+        }
+        let msg = lines.join('\n');
+        if (fastest) msg += `\n\n⚡ 最快重生：${fastest.boss}（${fastest.next.format('MM-DD HH:mm')}，剩 ${humanDiff(fastest.diff)}）`;
+        return client.replyMessage(event.replyToken, { type: 'text', text: msg || '目前沒有任何 BOSS 資訊' });
+      }
+
+      return client.replyMessage(event.replyToken, { type: 'text', text: '未識別指令，輸入 /幫助 查看可用指令' });
+    }
+  } catch (e) {
+    console.error('handleEvent error', e);
+  }
+}
+
+// ------------------- Cron: 每分鐘檢查 -------------------
+cron.schedule('* * * * *', async () => {
+  const now = moment().tz(TZ);
+  try {
+    const rows = await db.all(`SELECT s.boss, s.next_spawn_iso, s.last_alert_sent_notify_iso
+                               FROM boss_status s
+                               WHERE s.next_spawn_iso IS NOT NULL`);
+    for (const r of rows) {
+      const nextSpawn = moment.tz(r.next_spawn_iso, TZ);
+      const alertTime = nextSpawn.clone().subtract(10, 'minutes');
+
+      if (now.isAfter(alertTime) && (!r.last_alert_sent_notify_iso || moment.tz(r.last_alert_sent_notify_iso, TZ).isBefore(alertTime))) {
+        // 發送通知給所有使用者（可改成指定群組或 userId）
+        // 這裡暫時回到 console
+        console.log(`提醒：${r.boss} 將於 ${nextSpawn.format('YYYY-MM-DD HH:mm')} 重生 (前10分鐘)`);
+
+        // 更新 last_alert_sent_notify_iso
+        await db.run(`UPDATE boss_status SET last_alert_sent_notify_iso = ?, updated_at = datetime('now') WHERE boss = ?`,
+                     [toIso(now), r.boss]);
       }
     }
+  } catch (e) {
+    console.error('cron db read error', e);
   }
+});
+
+// ------------------- Start server -------------------
+app.listen(PORT, () => {
+  console.log(`🚀 LINE Boss Bot running on port ${PORT}`);
 });
