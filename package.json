@@ -1,19 +1,26 @@
 {
   "name": "line-boss-reminder",
   "version": "1.0.0",
+  "description": "LINE Boss Reminder Bot",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@line/bot-sdk": "^7.5.2",
+    "@line/bot-sdk": "^7.7.0",
     "dotenv": "^16.3.1",
     "express": "^4.19.2",
+    "body-parser": "^1.20.2",
     "node-cron": "^3.0.3",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
-    "dayjs": "^1.12.0",
-    "body-parser": "^1.20.2"
-  }
+    "dayjs": "^1.12.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["LINE", "bot", "reminder", "boss"],
+  "author": "YourName",
+  "license": "MIT"
 }
