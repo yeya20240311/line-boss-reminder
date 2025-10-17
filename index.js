@@ -9,6 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const TIMEZONE_OFFSET = 8 * 60 * 60 * 1000; // 台灣時區
 
+// === LINE 設定 ===
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -28,7 +29,8 @@ const db = new sqlite3.Database("./boss.db", (err) => {
 });
 db.run(`CREATE TABLE IF NOT EXISTS bosses (
   name TEXT PRIMARY KEY,
-  respawn_time INTEGER
+  respawn_time INTEGER,
+  notified INTEGER DEFAULT 0
 )`);
 
 // === 時間格式 ===
@@ -48,20 +50,26 @@ function formatRemaining(ms) {
   return `${hours}小時${minutes}分`;
 }
 
-// === Express ===
-app.post("/webhook", express.json({ verify: line.middleware(config) }), async (req, res) => {
-  Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
+// === Webhook ===
+// ⚠️ 千萬不要用 express.json()，要用 line.middleware()
+app.post("/webhook", line.middleware(config), (req, res) => {
+  Promise.all(req.body.events.map(handleEvent))
+    .then((result) => res.json(result))
+    .catch((err) => {
+      console.error(err);
+      res.status(500).end();
+    });
 });
 
 app.get("/", (req, res) => res.send("LINE Boss Bot 正常運作中 🚀"));
 
-// === 處理指令 ===
+// === 指令處理 ===
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
-  const userMessage = event.message.text.trim();
+  const msg = event.message.text.trim();
 
   // 幫助
-  if (userMessage === "/幫助") {
+  if (msg === "/幫助") {
     return reply(event, `🧾 指令列表：
 /幫助：顯示說明
 /設定 王名 間隔(小時)：設定重生間隔
@@ -70,47 +78,49 @@ async function handleEvent(event) {
 /BOSS：查詢所有王的狀態`);
   }
 
-  // 查詢所有王
-  if (userMessage === "/BOSS") {
-    db.all("SELECT * FROM bosses ORDER BY respawn_time ASC", async (err, rows) => {
+  // 顯示所有王
+  if (msg === "/BOSS") {
+    db.all("SELECT * FROM bosses ORDER BY respawn_time ASC", (err, rows) => {
       if (err || rows.length === 0) return reply(event, "目前沒有登記任何王。");
       const now = Date.now();
-      const lines = rows.map((r) => {
+      const list = rows.map((r) => {
         const remain = r.respawn_time - now;
         if (remain <= 0) return `⚔️ ${r.name} 已重生！`;
         return `🕓 ${r.name} 剩餘 ${formatRemaining(remain)}`;
       });
-      reply(event, lines.join("\n"));
+      reply(event, list.join("\n"));
     });
     return;
   }
 
-  // 設定間隔
-  if (userMessage.startsWith("/設定 ")) {
-    const parts = userMessage.split(" ");
+  // 設定固定間隔
+  if (msg.startsWith("/設定 ")) {
+    const parts = msg.split(" ");
     if (parts.length !== 3) return reply(event, "格式錯誤，用法：/設定 王名 間隔(小時)");
     const [_, name, hours] = parts;
     const interval = parseFloat(hours);
-    if (isNaN(interval)) return reply(event, "請輸入正確的數字小時。");
+    if (isNaN(interval)) return reply(event, "請輸入正確數字小時。");
     const respawn = Date.now() + interval * 60 * 60 * 1000;
-    db.run("REPLACE INTO bosses(name, respawn_time) VALUES(?, ?)", [name, respawn]);
-    return reply(event, `✅ 已設定 ${name} 重生間隔 ${interval} 小時（預計 ${formatTime(respawn)} 重生）`);
+    db.run("REPLACE INTO bosses(name, respawn_time, notified) VALUES(?, ?, 0)", [name, respawn]);
+    reply(event, `✅ 已設定 ${name} 重生間隔 ${interval} 小時（預計 ${formatTime(respawn)} 重生）`);
+    return;
   }
 
-  // 登記重生時間
-  if (userMessage.startsWith("/重生 ")) {
-    const parts = userMessage.split(" ");
+  // 重生剩餘時間
+  if (msg.startsWith("/重生 ")) {
+    const parts = msg.split(" ");
     if (parts.length !== 3) return reply(event, "格式錯誤，用法：/重生 王名 剩餘時間(小時.分鐘)");
     const [_, name, timeStr] = parts;
     const [h, m] = timeStr.split(".").map((x) => parseInt(x, 10));
     const respawn = Date.now() + (h * 60 + (m || 0)) * 60 * 1000;
-    db.run("REPLACE INTO bosses(name, respawn_time) VALUES(?, ?)", [name, respawn]);
-    return reply(event, `🕒 已登記 ${name} 將於 ${formatTime(respawn)} 重生`);
+    db.run("REPLACE INTO bosses(name, respawn_time, notified) VALUES(?, ?, 0)", [name, respawn]);
+    reply(event, `🕒 已登記 ${name} 將於 ${formatTime(respawn)} 重生`);
+    return;
   }
 
-  // 刪除王
-  if (userMessage.startsWith("/刪除 ")) {
-    const name = userMessage.replace("/刪除 ", "").trim();
+  // 刪除
+  if (msg.startsWith("/刪除 ")) {
+    const name = msg.replace("/刪除 ", "").trim();
     db.run("DELETE FROM bosses WHERE name = ?", [name], function (err) {
       if (err || this.changes === 0) return reply(event, `❌ 沒有找到 ${name}`);
       reply(event, `🗑️ 已刪除 ${name}`);
@@ -118,15 +128,15 @@ async function handleEvent(event) {
     return;
   }
 
-  // 查自己ID
-  if (userMessage === "/我的ID") {
-    const sourceId =
+  // 查ID
+  if (msg === "/我的ID") {
+    const id =
       event.source.type === "user"
         ? event.source.userId
         : event.source.type === "group"
         ? event.source.groupId
         : event.source.roomId;
-    return reply(event, `🆔 你的 ID：${sourceId}`);
+    return reply(event, `🆔 你的 ID：${id}`);
   }
 }
 
