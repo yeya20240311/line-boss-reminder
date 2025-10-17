@@ -4,7 +4,6 @@ import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import cron from 'node-cron';
 import moment from 'moment-timezone';
-import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -26,67 +25,34 @@ const config = {
 };
 
 const client = new Client(config);
-
 const app = express();
-app.use(bodyParser.json());
-app.use(middleware(config));
 
-let db;
+// LINE middleware 要在 JSON parser 前
+app.post('/webhook', middleware(config), async (req, res) => {
+  if (!req.body.events) return res.sendStatus(200);
 
-async function initDB() {
-  db = await open({
-    filename: './bot.db',
-    driver: sqlite3.Database,
-  });
-  await db.run(`CREATE TABLE IF NOT EXISTS boss_status (
-    boss TEXT PRIMARY KEY,
-    interval_hours INTEGER,
-    last_dead_iso TEXT,
-    next_spawn_iso TEXT,
-    alert_10min_sent INTEGER DEFAULT 0
-  )`);
-  console.log('✅ SQLite 已連線並確保表格存在');
-}
-
-await initDB();
-
-// 推播提醒
-async function checkBosses() {
-  const now = moment().tz(TZ);
-  const bosses = await db.all(`SELECT * FROM boss_status WHERE next_spawn_iso IS NOT NULL`);
-  for (const b of bosses) {
-    const nextSpawn = moment.tz(b.next_spawn_iso, TZ);
-    const diffMinutes = nextSpawn.diff(now, 'minutes');
-    if (diffMinutes <= 10 && diffMinutes > 0 && b.alert_10min_sent === 0) {
-      const message = {
-        type: 'text',
-        text: `@ALL ⚔️ ${b.boss} 即將在 ${diffMinutes} 分鐘後重生！（預定 ${nextSpawn.format('HH:mm')}）`,
-      };
-      await client.pushMessage(USER_ID, message);
-      await db.run(`UPDATE boss_status SET alert_10min_sent = 1 WHERE boss = ?`, b.boss);
-    }
-  }
-}
-
-cron.schedule('* * * * *', checkBosses);
-
-// LINE事件處理
-app.post('/webhook', async (req, res) => {
-  const events = req.body.events;
-  if (!events) return res.sendStatus(200);
-
-  for (const event of events) {
+  for (const event of req.body.events) {
     if (event.type !== 'message' || event.message.type !== 'text') continue;
 
     const text = event.message.text.trim();
     const replyToken = event.replyToken;
 
+    // 幫助
     if (text === '/幫助') {
       await client.replyMessage(replyToken, {
         type: 'text',
         text: `/幫助\n/設定 王名 間隔(小時)\n/死亡 王名 時間\n/BOSS\n/刪除 王名\n/我的ID`,
       });
-    } else if (text.startsWith('/設定 ')) {
+    }
+
+    // 我的ID
+    else if (text === '/我的ID') {
+      const userId = event.source.userId || '無法取得ID';
+      await client.replyMessage(replyToken, { type: 'text', text: `你的ID: ${userId}` });
+    }
+
+    // 其他指令保留原本邏輯
+    else if (text.startsWith('/設定 ')) {
       const [, boss, interval] = text.match(/^\/設定\s+(\S+)\s+(\d+)/) || [];
       if (boss && interval) {
         const nextSpawn = moment().add(Number(interval), 'hours').tz(TZ).toISOString();
@@ -134,15 +100,46 @@ app.post('/webhook', async (req, res) => {
       } else {
         await client.replyMessage(replyToken, { type: 'text', text: '指令格式錯誤' });
       }
-    } else if (text === '/我的ID') {
-      const userId = event.source.userId || '無法取得ID';
-      await client.replyMessage(replyToken, { type: 'text', text: `你的ID: ${userId}` });
     }
   }
-
   res.sendStatus(200);
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 LINE Boss Bot running on port ${PORT}`);
-});
+// JSON parser for other routes
+app.use(express.json());
+
+// SQLite 初始化
+let db;
+async function initDB() {
+  db = await open({ filename: './bot.db', driver: sqlite3.Database });
+  await db.run(`CREATE TABLE IF NOT EXISTS boss_status (
+    boss TEXT PRIMARY KEY,
+    interval_hours INTEGER,
+    last_dead_iso TEXT,
+    next_spawn_iso TEXT,
+    alert_10min_sent INTEGER DEFAULT 0
+  )`);
+  console.log('✅ SQLite 已連線並確保表格存在');
+}
+await initDB();
+
+// 推播提醒
+async function checkBosses() {
+  const now = moment().tz(TZ);
+  const bosses = await db.all(`SELECT * FROM boss_status WHERE next_spawn_iso IS NOT NULL`);
+  for (const b of bosses) {
+    const nextSpawn = moment.tz(b.next_spawn_iso, TZ);
+    const diffMinutes = nextSpawn.diff(now, 'minutes');
+    if (diffMinutes <= 10 && diffMinutes > 0 && b.alert_10min_sent === 0) {
+      const message = {
+        type: 'text',
+        text: `@ALL ⚔️ ${b.boss} 即將在 ${diffMinutes} 分鐘後重生！（預定 ${nextSpawn.format('HH:mm')}）`,
+      };
+      await client.pushMessage(USER_ID, message);
+      await db.run(`UPDATE boss_status SET alert_10min_sent = 1 WHERE boss = ?`, b.boss);
+    }
+  }
+}
+cron.schedule('* * * * *', checkBosses);
+
+app.listen(PORT, () => console.log(`🚀 LINE Boss Bot running on port ${PORT}`));
