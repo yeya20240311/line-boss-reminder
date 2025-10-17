@@ -196,4 +196,18 @@ cron.schedule('* * * * *', () => {
           if (now.isSameOrAfter(notifyTime) && now.isBefore(notifyTime.clone().add(60, 'seconds'))) {
             const already = row.last_alert_sent_notify_iso ? moment.tz(row.last_alert_sent_notify_iso, TZ) : null;
             if (!already || already.isBefore(notifyTime)) {
-              const txt = `⚠️ ${row.boss} 即將重生！時間：${next.format('YYYY-MM
+              const txt = `⚠️ ${row.boss} 即將重生！時間：${next.format('YYYY-MM-DD HH:mm')}`;
+              users.forEach(u => client.pushMessage(u.userId, { type: 'text', text: txt }));
+              db.run(`UPDATE boss_status SET last_alert_sent_notify_iso = ? WHERE boss = ?`, [toIso(now), row.boss]);
+            }
+          }
+        } catch (e) { console.error(e); }
+      });
+    });
+  });
+});
+
+// ------------------------ start server ------------------------
+app.listen(PORT, () => {
+  console.log(`LINE Boss Reminder Bot running on port ${PORT}`);
+});
