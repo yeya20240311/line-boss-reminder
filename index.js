@@ -1,156 +1,199 @@
-import express from 'express';
-import { Client, middleware } from '@line/bot-sdk';
-import fs from 'fs';
-import moment from 'moment-timezone';
-import cron from 'node-cron';
-import bodyParser from 'body-parser';
+import express from "express";
+import { Client, middleware } from "@line/bot-sdk";
+import fs from "fs";
+import path from "path";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+import cron from "node-cron";
 
-const app = express();
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 const PORT = process.env.PORT || 3000;
-const TZ = process.env.TIMEZONE || 'Asia/Taipei';
-const USER_ID = process.env.USER_ID; // 推播的使用者或群組ID
+const USER_ID = process.env.USER_ID; // 你的 LINE user 或群組 ID
+const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 
-if (!process.env.LINE_CHANNEL_SECRET || !process.env.LINE_CHANNEL_ACCESS_TOKEN || !USER_ID) {
-    console.error('請先設定環境變數 LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN 與 USER_ID');
-    process.exit(1);
+if (!USER_ID || !CHANNEL_ACCESS_TOKEN || !CHANNEL_SECRET) {
+  console.error(
+    "請先設定環境變數 LINE_CHANNEL_ACCESS_TOKEN、LINE_CHANNEL_SECRET 與 USER_ID"
+  );
+  process.exit(1);
 }
 
-const config = {
-    channelSecret: process.env.LINE_CHANNEL_SECRET,
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
+const client = new Client({
+  channelAccessToken: CHANNEL_ACCESS_TOKEN,
+  channelSecret: CHANNEL_SECRET,
+});
+
+const app = express();
+app.use(express.json());
+app.use(middleware({ channelSecret: CHANNEL_SECRET }));
+
+// JSON 存檔位置
+const DATA_PATH = path.resolve("./bosses.json");
+
+// 初始王設定
+let bosses = {
+  "冰2北": { next_spawn: null, interval_hours: 18, alertSent: false },
+  "激3右上": { next_spawn: null, interval_hours: 12, alertSent: false },
+  "冰1": { next_spawn: null, interval_hours: 12, alertSent: false },
+  "冰2南": { next_spawn: null, interval_hours: 12, alertSent: false },
+  "奇3北": { next_spawn: null, interval_hours: 12, alertSent: false },
+  "奇1北": { next_spawn: null, interval_hours: 12, alertSent: false },
+  "激2右": { next_spawn: null, interval_hours: 12, alertSent: false },
+  "奇3南": { next_spawn: null, interval_hours: 24, alertSent: false },
+  "奇2西": { next_spawn: null, interval_hours: 24, alertSent: false },
+  "奇2東": { next_spawn: null, interval_hours: 24, alertSent: false },
+  "奇1南": { next_spawn: null, interval_hours: 24, alertSent: false },
 };
-const client = new Client(config);
 
-app.use(bodyParser.json());
-app.use(middleware(config));
-
-let bosses = {}; // JSON 物件存放王資訊
-const DATA_FILE = './boss.json';
-
-// 讀取 JSON
-if (fs.existsSync(DATA_FILE)) {
-    try {
-        bosses = JSON.parse(fs.readFileSync(DATA_FILE));
-    } catch (e) {
-        console.error('讀取 boss.json 失敗，使用空資料');
-        bosses = {};
-    }
+// 讀取 JSON 檔案
+if (fs.existsSync(DATA_PATH)) {
+  try {
+    const data = fs.readFileSync(DATA_PATH, "utf-8");
+    bosses = JSON.parse(data);
+    console.log("已載入 bosses.json");
+  } catch (err) {
+    console.error("JSON 載入失敗，使用預設初始資料");
+  }
 }
 
 // 儲存 JSON
-function saveJSON() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(bosses, null, 2));
+function saveBosses() {
+  fs.writeFileSync(DATA_PATH, JSON.stringify(bosses, null, 2), "utf-8");
 }
 
 // 計算剩餘時間
-function getRemaining(boss) {
-    const now = moment().tz(TZ);
-    const spawn = moment(boss.next_spawn, 'YYYY-MM-DD HH:mm').tz(TZ);
-    const diff = spawn.diff(now);
-    if (diff <= 0) return '已重生';
-    const duration = moment.duration(diff);
-    const hours = Math.floor(duration.asHours());
-    const minutes = duration.minutes();
-    return `${hours}小時${minutes}分`;
+function getRemainingTime(nextSpawn) {
+  const now = dayjs();
+  const target = dayjs(nextSpawn);
+  const diff = target.diff(now, "minute");
+  if (diff <= 0) return "0小時0分";
+  const hours = Math.floor(diff / 60);
+  const minutes = diff % 60;
+  return `${hours}小時${minutes}分`;
 }
 
-// 處理 LINE 指令
-app.post('/webhook', async (req, res) => {
+// LINE webhook
+app.post("/webhook", async (req, res) => {
+  try {
     const events = req.body.events;
     for (const event of events) {
-        if (event.type !== 'message' || event.message.type !== 'text') continue;
-        const msg = event.message.text.trim();
-        const replyToken = event.replyToken;
+      if (event.type !== "message" || event.message.type !== "text") continue;
 
-        if (msg === '/幫助') {
-            await client.replyMessage(replyToken, {
-                type: 'text',
-                text: `/幫助：顯示說明\n/重生 王名 剩餘時間(例如3.06)：設定重生時間\n/刪除 王名：刪除王\n/BOSS：查詢所有王`
-            });
-        } else if (msg.startsWith('/重生 ')) {
-            const parts = msg.split(' ');
-            if (parts.length !== 3) {
-                await client.replyMessage(replyToken, { type: 'text', text: '格式錯誤，範例：/重生 激3南 3.06' });
-                continue;
-            }
-            const name = parts[1];
-            const timeStr = parts[2];
-            const [h, m] = timeStr.split('.').map(Number);
-            if (isNaN(h) || isNaN(m)) {
-                await client.replyMessage(replyToken, { type: 'text', text: '時間格式錯誤，範例：/重生 激3南 3.06' });
-                continue;
-            }
-            const next_spawn = moment().tz(TZ).add(h, 'hours').add(m, 'minutes').format('YYYY-MM-DD HH:mm');
-            bosses[name] = { next_spawn, alertSent: false };
-            saveJSON();
-            await client.replyMessage(replyToken, { type: 'text', text: `🕒 已登記 ${name} 將於 ${next_spawn} 重生` });
-        } else if (msg.startsWith('/刪除 ')) {
-            const name = msg.split(' ')[1];
-            if (bosses[name]) {
-                delete bosses[name];
-                saveJSON();
-                await client.replyMessage(replyToken, { type: 'text', text: `已刪除 ${name}` });
-            } else {
-                await client.replyMessage(replyToken, { type: 'text', text: `${name} 不存在` });
-            }
-        } else if (msg === '/BOSS') {
-            if (Object.keys(bosses).length === 0) {
-                await client.replyMessage(replyToken, { type: 'text', text: '目前沒有登記任何王' });
-                continue;
-            }
-            let text = '';
-            const now = moment().tz(TZ);
-            const sorted = Object.entries(bosses).sort((a, b) => {
-                const t1 = moment(a[1].next_spawn, 'YYYY-MM-DD HH:mm').tz(TZ);
-                const t2 = moment(b[1].next_spawn, 'YYYY-MM-DD HH:mm').tz(TZ);
-                return t1 - t2;
-            });
-            for (const [name, boss] of sorted) {
-                const spawn = moment(boss.next_spawn, 'YYYY-MM-DD HH:mm').tz(TZ);
-                const diff = spawn.diff(now);
-                let remaining;
-                if (diff <= 0) {
-                    remaining = '已重生';
-                } else {
-                    const duration = moment.duration(diff);
-                    remaining = `${duration.hours()}小時${duration.minutes()}分`;
-                }
-                text += `🕓 ${name} 剩餘 ${remaining}（重生時間：${boss.next_spawn}）\n`;
-            }
-            await client.replyMessage(replyToken, { type: 'text', text });
+      const userMessage = event.message.text.trim();
+      const replyToken = event.replyToken;
+
+      if (userMessage === "/幫助") {
+        await client.replyMessage(replyToken, {
+          type: "text",
+          text:
+            "/幫助：顯示說明\n" +
+            "/設定 王名 間隔(小時)：設定重生間隔\n" +
+            "/重生 王名 剩餘時間(小時.分)：記錄剩餘時間\n" +
+            "/刪除 王名：刪除王資訊\n" +
+            "/BOSS：查詢所有王狀態與剩餘時間\n" +
+            "/我的ID：查看你的 LINE ID",
+        });
+      } else if (userMessage.startsWith("/我的ID")) {
+        await client.replyMessage(replyToken, {
+          type: "text",
+          text: `你的 LINE ID: ${event.source.userId}`,
+        });
+      } else if (userMessage.startsWith("/BOSS")) {
+        let msg = "";
+        for (const [name, info] of Object.entries(bosses)) {
+          if (!info.next_spawn) {
+            msg += `🕓 ${name} 未設定重生時間\n`;
+          } else {
+            const remain = getRemainingTime(info.next_spawn);
+            const spawnTime = dayjs(info.next_spawn).format("HH:mm");
+            msg += `🕓 ${name} 剩餘 ${remain}（預定 ${spawnTime}）\n`;
+          }
         }
+        await client.replyMessage(replyToken, { type: "text", text: msg });
+      } else if (userMessage.startsWith("/重生")) {
+        // 格式: /重生 王名 16.59
+        const parts = userMessage.split(" ");
+        if (parts.length === 3) {
+          const bossName = parts[1];
+          const remainStr = parts[2];
+          if (!bosses[bossName]) {
+            await client.replyMessage(replyToken, {
+              type: "text",
+              text: `${bossName} 不存在`,
+            });
+            return;
+          }
+          const [hours, minutes] = remainStr.split(".").map(Number);
+          const nextSpawn = dayjs().add(hours, "hour").add(minutes, "minute");
+          bosses[bossName].next_spawn = nextSpawn.toISOString();
+          bosses[bossName].alertSent = false;
+          saveBosses();
+          await client.replyMessage(replyToken, {
+            type: "text",
+            text: `🕒 已登記 ${bossName} 將於 ${nextSpawn.format(
+              "HH:mm"
+            )} 重生`,
+          });
+        }
+      } else if (userMessage.startsWith("/刪除")) {
+        const parts = userMessage.split(" ");
+        if (parts.length === 2) {
+          const bossName = parts[1];
+          if (!bosses[bossName]) {
+            await client.replyMessage(replyToken, {
+              type: "text",
+              text: `${bossName} 不存在`,
+            });
+            return;
+          }
+          bosses[bossName].next_spawn = null;
+          bosses[bossName].alertSent = false;
+          saveBosses();
+          await client.replyMessage(replyToken, {
+            type: "text",
+            text: `🗑️ 已刪除 ${bossName} 重生時間`,
+          });
+        }
+      }
     }
+
     res.sendStatus(200);
+  } catch (err) {
+    console.error(err);
+    res.sendStatus(500);
+  }
 });
 
-// 每分鐘檢查提醒前10分鐘
-cron.schedule('* * * * *', async () => {
-    const now = moment().tz(TZ);
-    for (const [name, boss] of Object.entries(bosses)) {
-        const spawn = moment(boss.next_spawn, 'YYYY-MM-DD HH:mm').tz(TZ);
-        const diff = spawn.diff(now);
-        const minutesLeft = Math.floor(diff / 60000);
-        if (minutesLeft === 10 && !boss.alertSent) {
-            try {
-                await client.pushMessage(USER_ID, {
-                    type: 'text',
-                    text: `@ALL ⚔️ ${name} 即將在 10 分鐘後重生！（預定 ${spawn.format('HH:mm')}）`
-                });
-                boss.alertSent = true;
-                saveJSON();
-            } catch (err) {
-                console.error('推播失敗', err);
-            }
-        }
-        // 避免 alertSent 永遠 true，重生後清掉
-        if (minutesLeft < 0 && boss.alertSent) {
-            boss.alertSent = false;
-            saveJSON();
-        }
+// 前10分鐘推播提醒
+cron.schedule("*/1 * * * *", async () => {
+  const now = dayjs();
+  for (const [name, info] of Object.entries(bosses)) {
+    if (!info.next_spawn || info.alertSent) continue;
+    const target = dayjs(info.next_spawn);
+    const diffMin = target.diff(now, "minute");
+    if (diffMin <= 10 && diffMin > 9) {
+      try {
+        await client.pushMessage(USER_ID, {
+          type: "text",
+          text: `@ALL ⚔️ ${name} 即將在 10 分鐘後重生！（預定 ${target.format(
+            "HH:mm"
+          )}）`,
+        });
+        bosses[name].alertSent = true;
+        saveBosses();
+        console.log(`已推播 ${name} 前10分鐘提醒`);
+      } catch (err) {
+        console.error("推播失敗", err);
+      }
     }
+  }
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 LINE Boss Bot running on port ${PORT}`);
-    console.log('✅ JSON 已載入並確保可用');
+  console.log(`🚀 LINE Boss Bot running on port ${PORT}`);
+  console.log(`✅ 已確保 bosses.json 存在`);
 });
