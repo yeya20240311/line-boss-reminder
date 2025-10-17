@@ -3,13 +3,10 @@ import { Client, middleware } from '@line/bot-sdk';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import moment from 'moment-timezone';
-import bodyParser from 'body-parser';
 import cron from 'node-cron';
 
-const app = express();
 const PORT = process.env.PORT || 3000;
 const TZ = process.env.TIMEZONE || 'Asia/Taipei';
-
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const USER_ID = process.env.USER_ID;
@@ -24,11 +21,21 @@ const client = new Client({
   channelSecret: LINE_CHANNEL_SECRET
 });
 
+const app = express();
+
+// 用這個方式保留原始 body 給 middleware 驗證
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
+
 // SQLite 初始化
 const db = await open({
   filename: './bot.db',
   driver: sqlite3.Database
 });
+
 await db.exec(`CREATE TABLE IF NOT EXISTS boss_status (
   boss TEXT PRIMARY KEY,
   interval_hours REAL,
@@ -36,8 +43,8 @@ await db.exec(`CREATE TABLE IF NOT EXISTS boss_status (
   alert_10min_sent INTEGER DEFAULT 0
 )`);
 
-app.use(bodyParser.json());
-app.post('/webhook', middleware({ channelSecret: LINE_CHANNEL_SECRET }), async (req, res) => {
+// LINE webhook
+app.post('/webhook', middleware({ channelSecret: LINE_CHANNEL_SECRET, body: req => req.rawBody }), async (req, res) => {
   try {
     const events = req.body.events;
     for (const event of events) {
@@ -54,7 +61,8 @@ app.post('/webhook', middleware({ channelSecret: LINE_CHANNEL_SECRET }), async (
 /設定 王名 間隔(小時) → 設定重生間隔
 /重生 王名 剩餘時間 → 設定剩餘重生時間（格式 小時.分鐘）
 /BOSS → 查詢所有王狀態
-/刪除 王名 → 刪除王`
+/刪除 王名 → 刪除王
+/我的ID → 顯示你的 LINE 使用者或群組 ID`
         });
         continue;
       }
@@ -131,6 +139,12 @@ app.post('/webhook', middleware({ channelSecret: LINE_CHANNEL_SECRET }), async (
         } else {
           await client.replyMessage(replyToken, { type: 'text', text: '指令格式錯誤，範例: /刪除 激3南' });
         }
+        continue;
+      }
+
+      // /我的ID
+      if (text === '/我的ID') {
+        await client.replyMessage(replyToken, { type: 'text', text: `你的 LINE ID: ${event.source.userId || event.source.groupId}` });
         continue;
       }
     }
