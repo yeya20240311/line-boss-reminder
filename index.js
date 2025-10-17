@@ -68,7 +68,9 @@ async function handleMessage(event) {
 /幫助：顯示說明
 /設定 王名 間隔(小時)：設定重生間隔
 /死亡 王名 時間：記錄死亡時間 (時間格式 HH:mm)
-/BOSS：查詢所有王的狀態與最快重生`
+/BOSS：查詢所有王的狀態與最快重生
+/修改名稱 舊王名 新王名：修改王名稱
+/修改間隔 王名 新間隔(小時)：修改重生間隔`
     });
   }
 
@@ -101,6 +103,27 @@ async function handleMessage(event) {
     const rows = await db.all('SELECT * FROM boss_status ORDER BY next_spawn_iso ASC');
     const lines = rows.map(r => `${r.boss}：${r.next_spawn_iso ? moment(r.next_spawn_iso).tz(TZ).format('HH:mm') : '未知'}`);
     await client.replyMessage(event.replyToken, { type: 'text', text: lines.join('\n') || '目前沒有王資料' });
+  }
+
+  // 新增：修改王名稱
+  else if (text.startsWith('/修改名稱')) {
+    const [, oldName, newName] = text.split(' ');
+    if (!oldName || !newName) return client.replyMessage(event.replyToken, { type: 'text', text: '格式錯誤，範例：/修改名稱 奇岩1 奇岩A' });
+    const row = await db.get('SELECT * FROM boss_status WHERE boss=?', oldName);
+    if (!row) return client.replyMessage(event.replyToken, { type: 'text', text: '舊王名不存在' });
+    await db.run('UPDATE boss_status SET boss=? WHERE boss=?', [newName, oldName]);
+    await client.replyMessage(event.replyToken, { type: 'text', text: `王名稱已修改：${oldName} → ${newName}` });
+  }
+
+  // 新增：修改間隔
+  else if (text.startsWith('/修改間隔')) {
+    const [, boss, hours] = text.split(' ');
+    if (!boss || !hours || isNaN(hours)) return client.replyMessage(event.replyToken, { type: 'text', text: '格式錯誤，範例：/修改間隔 奇岩1 8' });
+    const row = await db.get('SELECT * FROM boss_status WHERE boss=?', boss);
+    if (!row) return client.replyMessage(event.replyToken, { type: 'text', text: '王不存在' });
+    const nextSpawn = row.last_dead_iso ? moment(row.last_dead_iso).add(Number(hours), 'hours').toISOString() : moment().add(Number(hours), 'hours').toISOString();
+    await db.run('UPDATE boss_status SET interval_hours=?, next_spawn_iso=?, alerted_10min=0 WHERE boss=?', [hours, nextSpawn, boss]);
+    await client.replyMessage(event.replyToken, { type: 'text', text: `${boss} 的重生間隔已修改為 ${hours} 小時` });
   }
 }
 
