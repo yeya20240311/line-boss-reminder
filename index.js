@@ -1,144 +1,50 @@
-import express from 'express';
-import { Client, middleware } from '@line/bot-sdk';
-import dotenv from 'dotenv';
-import fs from 'fs';
-import path from 'path';
-import cron from 'node-cron';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
-dayjs.extend(utc);
-dayjs.extend(timezone);
+import express from "express";
+import { Client, middleware } from "@line/bot-sdk";
+import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import dayjs from "dayjs";
+import cron from "node-cron";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 10000;
-const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const USER_ID = process.env.USER_ID;
+// ===== LINE 設定 =====
+const config = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
+const client = new Client(config);
 
-if (!CHANNEL_SECRET || !CHANNEL_ACCESS_TOKEN || !USER_ID) {
-  console.error('請先設定環境變數 LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN 與 USER_ID');
-  process.exit(1);
-}
-
-const client = new Client({
-  channelAccessToken: CHANNEL_ACCESS_TOKEN,
-  channelSecret: CHANNEL_SECRET,
-});
-
-const app = express();
-const WEBHOOK_PATH = '/webhook';
-
-// JSON 檔案存放
-const DATA_FILE = path.resolve('./boss.json');
+// JSON 檔案
+const bossFile = path.resolve("./boss.json");
 let bossData = {};
 
-// 讀取 JSON
-function loadBossData() {
-  if (fs.existsSync(DATA_FILE)) {
-    bossData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } else {
-    bossData = {};
-    fs.writeFileSync(DATA_FILE, JSON.stringify(bossData, null, 2));
-  }
+// 載入 JSON
+if (fs.existsSync(bossFile)) {
+  bossData = JSON.parse(fs.readFileSync(bossFile));
+  console.log("✅ JSON 已載入並確保可用");
+} else {
+  fs.writeFileSync(bossFile, JSON.stringify({}));
+  console.log("✅ JSON 已建立");
 }
 
 // 儲存 JSON
 function saveBossData() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(bossData, null, 2));
+  fs.writeFileSync(bossFile, JSON.stringify(bossData, null, 2));
 }
 
-// 計算剩餘時間
-function getRemaining(boss) {
-  if (!boss.nextSpawn) return null;
-  const now = dayjs();
-  const diff = dayjs(boss.nextSpawn).diff(now, 'minute');
-  if (diff <= 0) return '已重生';
-  const hours = Math.floor(diff / 60);
-  const minutes = diff % 60;
-  return `${hours}小時${minutes}分`;
-}
+// ===== Express =====
+const app = express();
 
-// 使用原始 body
+// 用 raw 保留原始 body 給 LINE SDK 驗證
 app.post(
-  WEBHOOK_PATH,
-  express.raw({ type: 'application/json' }), // ← 這裡非常重要，保留 raw body
-  middleware({ channelSecret: CHANNEL_SECRET }),
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  middleware(config),
   async (req, res) => {
     try {
       const events = JSON.parse(req.body.toString()).events;
-
-      for (const event of events) {
-        if (event.type !== 'message' || event.message.type !== 'text') continue;
-        const text = event.message.text.trim();
-        const replyToken = event.replyToken;
-
-        if (text === '/幫助') {
-          await client.replyMessage(replyToken, {
-            type: 'text',
-            text: `指令列表：
-/幫助
-/設定 王名 小時
-/重生 王名 剩餘小時.分
-/刪除 王名
-/BOSS`,
-          });
-        } else if (text.startsWith('/設定 ')) {
-          const [, name, hours] = text.split(' ');
-          if (!name || !hours) {
-            await client.replyMessage(replyToken, { type: 'text', text: '格式錯誤：/設定 王名 小時' });
-            continue;
-          }
-          bossData[name] = bossData[name] || {};
-          bossData[name].intervalHours = Number(hours);
-          saveBossData();
-          await client.replyMessage(replyToken, { type: 'text', text: `📝 已設定 ${name} 重生間隔 ${hours} 小時` });
-        } else if (text.startsWith('/重生 ')) {
-          const [, name, remaining] = text.split(' ');
-          if (!name || !remaining) {
-            await client.replyMessage(replyToken, { type: 'text', text: '格式錯誤：/重生 王名 剩餘小時.分' });
-            continue;
-          }
-          const [h, m] = remaining.split('.').map(Number);
-          if (isNaN(h) || isNaN(m)) {
-            await client.replyMessage(replyToken, { type: 'text', text: '剩餘時間格式錯誤，範例：3.06' });
-            continue;
-          }
-          const now = dayjs();
-          bossData[name] = bossData[name] || {};
-          bossData[name].nextSpawn = now.add(h, 'hour').add(m, 'minute').toISOString();
-          bossData[name].notified = false; // 重設 10 分鐘通知
-          saveBossData();
-          await client.replyMessage(replyToken, { type: 'text', text: `🕒 已登記 ${name} 將於 ${dayjs(bossData[name].nextSpawn).format('HH:mm')} 重生` });
-        } else if (text.startsWith('/刪除 ')) {
-          const [, name] = text.split(' ');
-          if (bossData[name]) {
-            delete bossData[name];
-            saveBossData();
-            await client.replyMessage(replyToken, { type: 'text', text: `❌ 已刪除 ${name}` });
-          } else {
-            await client.replyMessage(replyToken, { type: 'text', text: `${name} 不存在` });
-          }
-        } else if (text === '/BOSS') {
-          const lines = [];
-          const now = dayjs();
-          for (const [name, boss] of Object.entries(bossData)) {
-            if (!boss.nextSpawn) continue;
-            const remaining = getRemaining(boss);
-            lines.push(`🕓 ${name} 剩餘 ${remaining}（重生時間：${dayjs(boss.nextSpawn).format('YYYY-MM-DD HH:mm')}）`);
-          }
-          lines.sort((a, b) => {
-            const aMin = dayjs(bossData[a.split(' ')[1]].nextSpawn).diff(now, 'minute');
-            const bMin = dayjs(bossData[b.split(' ')[1]].nextSpawn).diff(now, 'minute');
-            return aMin - bMin;
-          });
-          await client.replyMessage(replyToken, { type: 'text', text: lines.join('\n') || '目前沒有王' });
-        } else {
-          await client.replyMessage(replyToken, { type: 'text', text: '指令錯誤，請輸入 /幫助 查看指令' });
-        }
-      }
-
+      await Promise.all(events.map(handleEvent));
       res.sendStatus(200);
     } catch (err) {
       console.error(err);
@@ -147,27 +53,128 @@ app.post(
   }
 );
 
-// cron 每分鐘檢查前10分鐘
-cron.schedule('* * * * *', async () => {
+app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
+
+// ===== 指令處理 =====
+async function handleEvent(event) {
+  if (event.type !== "message" || event.message.type !== "text") return;
+
+  const userId = event.source.userId;
+  const text = event.message.text.trim();
+  const args = text.split(" ");
+
+  // /幫助
+  if (text === "/幫助") {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `可用指令：
+/設定 王名 時間(小時)
+/重生 王名 剩餘時間(小時.分)
+/刪除 王名
+/BOSS
+/我的ID`,
+    });
+    return;
+  }
+
+  // /我的ID
+  if (text === "/我的ID") {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `你的ID: ${userId}`,
+    });
+    return;
+  }
+
+  // /設定 王名 時間
+  if (args[0] === "/設定" && args.length === 3) {
+    const [_, name, hours] = args;
+    bossData[name] = {
+      interval: parseFloat(hours),
+      lastDeath: null,
+    };
+    saveBossData();
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `🕒 已設定 ${name} 重生間隔為 ${hours} 小時`,
+    });
+    return;
+  }
+
+  // /重生 王名 剩餘時間
+  if (args[0] === "/重生" && args.length === 3) {
+    const [_, name, remain] = args;
+    if (!bossData[name]) {
+      await client.replyMessage(event.replyToken, {
+        type: "text",
+        text: `${name} 尚未設定`,
+      });
+      return;
+    }
+    const hours = Math.floor(parseFloat(remain));
+    const mins = Math.round((parseFloat(remain) - hours) * 60);
+    bossData[name].lastDeath = dayjs().add(hours, "hour").add(mins, "minute").toISOString();
+    saveBossData();
+    const respTime = dayjs(bossData[name].lastDeath).format("HH:mm");
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `🕒 已登記 ${name} 將於 ${respTime} 重生`,
+    });
+    return;
+  }
+
+  // /刪除 王名
+  if (args[0] === "/刪除" && args.length === 2) {
+    const name = args[1];
+    delete bossData[name];
+    saveBossData();
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `🗑 已刪除 ${name}`,
+    });
+    return;
+  }
+
+  // /BOSS
+  if (text === "/BOSS") {
+    const list = Object.keys(bossData)
+      .map((name) => {
+        if (!bossData[name].lastDeath) return `${name} 尚未登記死亡`;
+        const remain = dayjs(bossData[name].lastDeath).diff(dayjs(), "minute");
+        const h = Math.floor(remain / 60);
+        const m = remain % 60;
+        const respTime = dayjs(bossData[name].lastDeath).format("HH:mm");
+        return `🕓 ${name} 剩餘 ${h}小時${m}分（預定 ${respTime}）`;
+      })
+      .join("\n");
+    await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無資料" });
+    return;
+  }
+}
+
+// ===== 每分鐘檢查重生前10分鐘 =====
+cron.schedule("* * * * *", async () => {
   const now = dayjs();
-  for (const [name, boss] of Object.entries(bossData)) {
-    if (!boss.nextSpawn) continue;
-    const diff = dayjs(boss.nextSpawn).diff(now, 'minute');
-    if (diff === 10 && !boss.notified) {
-      const text = `@ALL ⚔️ ${name} 即將在 10 分鐘後重生！（預定 ${dayjs(boss.nextSpawn).format('HH:mm')}）`;
+  for (const name in bossData) {
+    const boss = bossData[name];
+    if (!boss.lastDeath || !boss.interval) continue;
+
+    const diff = dayjs(boss.lastDeath).diff(now, "minute");
+    // 差10分鐘，推播一次
+    if (diff <= 10 && diff > 9) {
+      const respTime = dayjs(boss.lastDeath).format("HH:mm");
       try {
-        await client.pushMessage(USER_ID, { type: 'text', text });
-        boss.notified = true;
-        saveBossData();
+        await client.pushMessage(process.env.USER_ID, {
+          type: "text",
+          text: `@ALL ⚔️ ${name} 即將在 10 分鐘後重生！（預定 ${respTime}）`,
+        });
       } catch (err) {
-        console.error('cron 推播錯誤', err);
+        console.error(err);
       }
     }
   }
 });
 
-loadBossData();
-app.listen(PORT, () => {
-  console.log(`🚀 LINE Boss Bot running on port ${PORT}`);
-  console.log('✅ JSON 已載入並確保可用');
+app.listen(process.env.PORT || 10000, () => {
+  console.log("🚀 LINE Boss Bot running on port 10000");
 });
