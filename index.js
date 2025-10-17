@@ -1,204 +1,157 @@
 import express from "express";
 import line from "@line/bot-sdk";
 import sqlite3 from "sqlite3";
-import { open } from "sqlite";
-import axios from "axios";
-import cron from "node-cron";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 10000;
+const TIMEZONE_OFFSET = 8 * 60 * 60 * 1000; // 台灣時區
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
-const USER_ID = process.env.USER_ID; // 你的LINE個人或群組ID
-const GIST_ID = "d0100c2c88b974497380b1958de596b3"; // 你的Gist ID
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
-if (!config.channelAccessToken || !config.channelSecret || !USER_ID || !GITHUB_TOKEN) {
-  console.error("請先設定環境變數 LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN、USER_ID、GITHUB_TOKEN");
+if (!config.channelAccessToken || !config.channelSecret || !process.env.USER_ID) {
+  console.error("❌ 請先設定環境變數 LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN 與 USER_ID");
   process.exit(1);
 }
 
 const client = new line.Client(config);
-const app = express();
 
-// --- SQLite 初始化（暫存用）
-let db;
-(async () => {
-  db = await open({
-    filename: "./bot.db",
-    driver: sqlite3.Database,
-  });
-  await db.exec(`CREATE TABLE IF NOT EXISTS bosses (
-    name TEXT PRIMARY KEY,
-    respawn_hours REAL,
-    respawn_time INTEGER
-  )`);
-  console.log("✅ SQLite 已連線並確保表格存在");
-
-  // 啟動時讀取 Gist 備份資料
-  await loadFromGist();
-})();
-
-app.post("/webhook", line.middleware(config), async (req, res) => {
-  try {
-    const events = req.body.events;
-    for (const event of events) {
-      if (event.type === "message" && event.message.type === "text") {
-        await handleCommand(event);
-      }
-    }
-    res.status(200).end();
-  } catch (err) {
-    console.error("Webhook error:", err);
-    res.status(500).end();
-  }
+// === SQLite 初始化 ===
+const db = new sqlite3.Database("./boss.db", (err) => {
+  if (err) console.error("❌ 資料庫連線錯誤：", err);
+  else console.log("✅ SQLite 已連線並確保表格存在");
 });
+db.run(`CREATE TABLE IF NOT EXISTS bosses (
+  name TEXT PRIMARY KEY,
+  respawn_time INTEGER
+)`);
 
-async function handleCommand(event) {
-  const text = event.message.text.trim();
-  const replyToken = event.replyToken;
-
-  // === 指令區 ===
-  if (text === "/幫助") {
-    const msg = `
-📘 指令列表：
-/幫助 — 顯示說明
-/設定 王名 間隔(小時) — 設定重生間隔
-/重生 王名 剩餘時間（例如 3.06 表示3小時6分後重生）
-/刪除 王名 — 刪除王資料
-/BOSS — 顯示所有王的狀態（剩餘時間）
-/我的ID — 顯示你的使用者或群組ID
-`;
-    return reply(replyToken, msg);
-  }
-
-  // 取得 LINE 使用者或群組 ID
-  if (text === "/我的ID") {
-    return reply(replyToken, `你的ID是：${event.source.groupId || event.source.userId}`);
-  }
-
-  // === 設定重生間隔 ===
-  if (text.startsWith("/設定")) {
-    const [, name, hours] = text.split(" ");
-    if (!name || !hours) return reply(replyToken, "❌ 格式錯誤，請輸入：/設定 王名 間隔(小時)");
-    await db.run(
-      "INSERT OR REPLACE INTO bosses (name, respawn_hours, respawn_time) VALUES (?, ?, ?)",
-      [name, parseFloat(hours), 0]
-    );
-    await saveToGist();
-    return reply(replyToken, `✅ 已設定 ${name} 的重生間隔為 ${hours} 小時`);
-  }
-
-  // === 登記剩餘時間（重生倒數）===
-  if (text.startsWith("/重生")) {
-    const [, name, remainStr] = text.split(" ");
-    if (!name || !remainStr) return reply(replyToken, "❌ 格式錯誤，請輸入：/重生 王名 剩餘時間（例如 3.06）");
-
-    const [h, m] = remainStr.split(".").map((x) => parseInt(x) || 0);
-    const totalMs = (h * 60 + m) * 60 * 1000;
-    const respawnTime = Date.now() + totalMs;
-    await db.run(
-      "INSERT OR REPLACE INTO bosses (name, respawn_hours, respawn_time) VALUES (?, COALESCE((SELECT respawn_hours FROM bosses WHERE name=?), 0), ?)",
-      [name, name, respawnTime]
-    );
-    await saveToGist();
-    return reply(replyToken, `🕒 已登記 ${name} 將於 ${formatTime(respawnTime)} 重生`);
-  }
-
-  // === 刪除王 ===
-  if (text.startsWith("/刪除")) {
-    const [, name] = text.split(" ");
-    if (!name) return reply(replyToken, "❌ 格式錯誤，請輸入：/刪除 王名");
-    await db.run("DELETE FROM bosses WHERE name = ?", [name]);
-    await saveToGist();
-    return reply(replyToken, `🗑 已刪除 ${name}`);
-  }
-
-  // === 查詢王狀態 ===
-  if (text === "/BOSS") {
-    const bosses = await db.all("SELECT * FROM bosses ORDER BY respawn_time ASC");
-    if (!bosses.length) return reply(replyToken, "目前沒有登記任何王。");
-
-    const now = Date.now();
-    const list = bosses.map((b) => {
-      const remainMs = b.respawn_time - now;
-      if (remainMs <= 0) return `✅ ${b.name} 已重生！`;
-      const remain = msToTime(remainMs);
-      return `🕓 ${b.name} 剩餘 ${remain}`;
-    });
-
-    return reply(replyToken, list.join("\n"));
-  }
-}
-
-// === 推播提醒 ===
-cron.schedule("*/1 * * * *", async () => {
-  const bosses = await db.all("SELECT * FROM bosses WHERE respawn_time > 0");
-  const now = Date.now();
-
-  for (const b of bosses) {
-    const diffMin = Math.floor((b.respawn_time - now) / 60000);
-    if (diffMin === 10) {
-      await client.pushMessage(USER_ID, {
-        type: "text",
-        text: `@ALL ⚔️ ${b.name} 即將在 10 分鐘後重生！（預定 ${formatTime(b.respawn_time)}）`,
-      });
-    }
-  }
-});
-
-// === Gist 同步函式 ===
-async function saveToGist() {
-  const bosses = await db.all("SELECT * FROM bosses");
-  const data = JSON.stringify(bosses, null, 2);
-  await axios.patch(
-    `https://api.github.com/gists/${GIST_ID}`,
-    { files: { "boss_data.json": { content: data } } },
-    { headers: { Authorization: `token ${GITHUB_TOKEN}` } }
-  );
-  console.log("💾 已儲存至 Gist");
-}
-
-async function loadFromGist() {
-  try {
-    const res = await axios.get(`https://api.github.com/gists/${GIST_ID}`, {
-      headers: { Authorization: `token ${GITHUB_TOKEN}` },
-    });
-    const content = JSON.parse(res.data.files["boss_data.json"].content);
-    if (Array.isArray(content)) {
-      for (const b of content) {
-        await db.run(
-          "INSERT OR REPLACE INTO bosses (name, respawn_hours, respawn_time) VALUES (?, ?, ?)",
-          [b.name, b.respawn_hours, b.respawn_time]
-        );
-      }
-      console.log("☁️ 已從 Gist 匯入資料");
-    }
-  } catch (err) {
-    console.warn("⚠️ Gist 匯入失敗或空白", err.message);
-  }
-}
-
-// === 工具 ===
-function reply(token, text) {
-  return client.replyMessage(token, { type: "text", text });
-}
+// === 時間格式 ===
 function formatTime(ts) {
-  const d = new Date(ts);
-  return `${d.getHours().toString().padStart(2, "0")}:${d
-    .getMinutes()
-    .toString()
-    .padStart(2, "0")}`;
+  const d = new Date(ts + TIMEZONE_OFFSET);
+  const month = (d.getUTCMonth() + 1).toString().padStart(2, "0");
+  const day = d.getUTCDate().toString().padStart(2, "0");
+  const hours = d.getUTCHours().toString().padStart(2, "0");
+  const minutes = d.getUTCMinutes().toString().padStart(2, "0");
+  return `${month}/${day} ${hours}:${minutes}`;
 }
-function msToTime(ms) {
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return `${h}小時${m}分`;
+
+function formatRemaining(ms) {
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}小時${minutes}分`;
 }
+
+// === Express ===
+app.post("/webhook", express.json({ verify: line.middleware(config) }), async (req, res) => {
+  Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
+});
+
+app.get("/", (req, res) => res.send("LINE Boss Bot 正常運作中 🚀"));
+
+// === 處理指令 ===
+async function handleEvent(event) {
+  if (event.type !== "message" || event.message.type !== "text") return;
+  const userMessage = event.message.text.trim();
+
+  // 幫助
+  if (userMessage === "/幫助") {
+    return reply(event, `🧾 指令列表：
+/幫助：顯示說明
+/設定 王名 間隔(小時)：設定重生間隔
+/重生 王名 剩餘時間(小時.分鐘)：紀錄重生倒數
+/刪除 王名：刪除王資料
+/BOSS：查詢所有王的狀態`);
+  }
+
+  // 查詢所有王
+  if (userMessage === "/BOSS") {
+    db.all("SELECT * FROM bosses ORDER BY respawn_time ASC", async (err, rows) => {
+      if (err || rows.length === 0) return reply(event, "目前沒有登記任何王。");
+      const now = Date.now();
+      const lines = rows.map((r) => {
+        const remain = r.respawn_time - now;
+        if (remain <= 0) return `⚔️ ${r.name} 已重生！`;
+        return `🕓 ${r.name} 剩餘 ${formatRemaining(remain)}`;
+      });
+      reply(event, lines.join("\n"));
+    });
+    return;
+  }
+
+  // 設定間隔
+  if (userMessage.startsWith("/設定 ")) {
+    const parts = userMessage.split(" ");
+    if (parts.length !== 3) return reply(event, "格式錯誤，用法：/設定 王名 間隔(小時)");
+    const [_, name, hours] = parts;
+    const interval = parseFloat(hours);
+    if (isNaN(interval)) return reply(event, "請輸入正確的數字小時。");
+    const respawn = Date.now() + interval * 60 * 60 * 1000;
+    db.run("REPLACE INTO bosses(name, respawn_time) VALUES(?, ?)", [name, respawn]);
+    return reply(event, `✅ 已設定 ${name} 重生間隔 ${interval} 小時（預計 ${formatTime(respawn)} 重生）`);
+  }
+
+  // 登記重生時間
+  if (userMessage.startsWith("/重生 ")) {
+    const parts = userMessage.split(" ");
+    if (parts.length !== 3) return reply(event, "格式錯誤，用法：/重生 王名 剩餘時間(小時.分鐘)");
+    const [_, name, timeStr] = parts;
+    const [h, m] = timeStr.split(".").map((x) => parseInt(x, 10));
+    const respawn = Date.now() + (h * 60 + (m || 0)) * 60 * 1000;
+    db.run("REPLACE INTO bosses(name, respawn_time) VALUES(?, ?)", [name, respawn]);
+    return reply(event, `🕒 已登記 ${name} 將於 ${formatTime(respawn)} 重生`);
+  }
+
+  // 刪除王
+  if (userMessage.startsWith("/刪除 ")) {
+    const name = userMessage.replace("/刪除 ", "").trim();
+    db.run("DELETE FROM bosses WHERE name = ?", [name], function (err) {
+      if (err || this.changes === 0) return reply(event, `❌ 沒有找到 ${name}`);
+      reply(event, `🗑️ 已刪除 ${name}`);
+    });
+    return;
+  }
+
+  // 查自己ID
+  if (userMessage === "/我的ID") {
+    const sourceId =
+      event.source.type === "user"
+        ? event.source.userId
+        : event.source.type === "group"
+        ? event.source.groupId
+        : event.source.roomId;
+    return reply(event, `🆔 你的 ID：${sourceId}`);
+  }
+}
+
+// === 回覆訊息 ===
+function reply(event, text) {
+  return client.replyMessage(event.replyToken, { type: "text", text });
+}
+
+// === 10 分鐘前推播提醒 ===
+setInterval(() => {
+  const now = Date.now();
+  db.all("SELECT * FROM bosses", async (err, rows) => {
+    if (err || !rows) return;
+    for (const r of rows) {
+      const diff = r.respawn_time - now;
+      if (diff > 0 && diff <= 10 * 60 * 1000 && !r.notified) {
+        const msg = `@ALL ⚔️ ${r.name} 即將在 10 分鐘後重生！（預定 ${formatTime(r.respawn_time)}）`;
+        await client.pushMessage(process.env.USER_ID, { type: "text", text: msg });
+        db.run("UPDATE bosses SET notified = 1 WHERE name = ?", [r.name]);
+      } else if (diff <= 0) {
+        db.run("UPDATE bosses SET notified = 0 WHERE name = ?", [r.name]);
+      }
+    }
+  });
+}, 60 * 1000);
 
 // === 啟動伺服器 ===
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 LINE Boss Bot running on port ${PORT}`));
