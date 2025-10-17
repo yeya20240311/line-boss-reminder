@@ -1,4 +1,3 @@
-// index.js
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
@@ -25,24 +24,28 @@ const config = {
 
 const client = new line.Client(config);
 const app = express();
-
-// bodyParser.json() 必須在 middleware 前
 app.use(bodyParser.json());
 
 const db = new sqlite3.Database('./bot.db');
 
-// ------------------------ 建立資料表 ------------------------
+// ------------------------ 初始化資料表 ------------------------
 db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS boss_defs (
-    boss TEXT PRIMARY KEY,
-    interval_hours INTEGER
-  )`);
   db.run(`CREATE TABLE IF NOT EXISTS boss_status (
     boss TEXT PRIMARY KEY,
     last_death_iso TEXT,
     next_spawn_iso TEXT,
     last_alert_sent_notify_iso TEXT,
     updated_at TEXT
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS boss_defs (
+    boss TEXT PRIMARY KEY,
+    interval_hours INTEGER
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    userId TEXT PRIMARY KEY,
+    displayName TEXT
   )`);
 });
 
@@ -59,8 +62,7 @@ function parseTimeInput(txt) {
   } else {
     return null;
   }
-  if (!m.isValid()) return null;
-  return m;
+  return m.isValid() ? m : null;
 }
 
 function toIso(m) {
@@ -94,14 +96,14 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 
 app.get('/', (req, res) => res.send('LINE Boss Reminder Bot is running'));
 
-// ------------------------ handle events ------------------------
+// ------------------------ 處理事件 ------------------------
 async function handleEvent(event) {
   try {
     if (event.type === 'follow') {
       const userId = event.source.userId;
       const profile = await client.getProfile(userId);
-      const txt = `歡迎 ${profile.displayName}！\n輸入 /幫助 查看指令`;
-      return client.replyMessage(event.replyToken, { type: 'text', text: txt });
+      db.run(`INSERT OR IGNORE INTO users (userId, displayName) VALUES (?,?)`, [userId, profile.displayName]);
+      return client.replyMessage(event.replyToken, { type: 'text', text: `歡迎 ${profile.displayName}！輸入「/BOSS」查看所有王狀態或輸入「/幫助」`});
     }
 
     if (event.type === 'message' && event.message.type === 'text') {
@@ -137,8 +139,8 @@ async function handleEvent(event) {
       }
 
       // /死亡 王名 時間
-      if (/^\/?死亡\s+(.+?)\s+(.+)$/.test(text)) {
-        const m = text.match(/^\/?死亡\s+(.+?)\s+(.+)$/);
+      if (/^\/?死亡\s+(.+?)\s+(.+)$/i.test(text)) {
+        const m = text.match(/^\/?死亡\s+(.+?)\s+(.+)$/i);
         const boss = m[1].trim();
         const timeStr = m[2].trim();
         const parsed = parseTimeInput(timeStr);
@@ -158,15 +160,15 @@ async function handleEvent(event) {
             [boss, toIso(parsed), toIso(nextSpawn), null],
             function(err2) {
               if (err2) console.error(err2);
-              const txt = `✅ 已記錄 ${boss} 死亡於 ${parsed.tz(TZ).format('YYYY-MM-DD HH:mm')}\n下次重生：${nextSpawn.tz(TZ).format('YYYY-MM-DD HH:mm')}\n將在重生前10分鐘自動通知`;
+              const txt = `✅ 已記錄 ${boss} 死亡於 ${parsed.tz(TZ).format('YYYY-MM-DD HH:mm')}\n下次重生：${nextSpawn.tz(TZ).format('YYYY-MM-DD HH:mm')}\n我們會在重生前 10 分鐘自動通知所有玩家。`;
               client.replyMessage(event.replyToken, { type: 'text', text: txt });
             });
         });
         return;
       }
 
-      // /BOSS 查詢所有狀態
-      if (/^\/?BOSS$/i.test(text) || /^\/?boss$/i.test(text)) {
+      // /BOSS 查詢
+      if (/^\/?BOSS$/i.test(text)) {
         db.all(`SELECT b.boss, b.interval_hours, s.last_death_iso, s.next_spawn_iso
                 FROM boss_defs b LEFT JOIN boss_status s ON b.boss = s.boss`, (err, rows) => {
           if (err) { console.error(err); return client.replyMessage(event.replyToken, { type: 'text', text: '查詢錯誤' }); }
@@ -201,7 +203,7 @@ async function handleEvent(event) {
   }
 }
 
-// ------------------------ cron: 每分鐘檢查並推播 ------------------------
+// ------------------------ cron 每分鐘檢查 ------------------------
 cron.schedule('* * * * *', () => {
   const now = moment().tz(TZ);
   db.all(`SELECT boss, next_spawn_iso, last_alert_sent_notify_iso FROM boss_status WHERE next_spawn_iso IS NOT NULL`, (err, rows) => {
@@ -210,18 +212,21 @@ cron.schedule('* * * * *', () => {
       try {
         const next = moment.tz(row.next_spawn_iso, TZ);
         const notifyTime = next.clone().subtract(10, 'minutes');
-        const already = row.last_alert_sent_notify_iso ? moment.tz(row.last_alert_sent_notify_iso, TZ) : null;
-        if (now.isSameOrAfter(notifyTime) && (!already || already.isBefore(notifyTime))) {
-          const txt = `⚠️ ${row.boss} 即將重生（10 分鐘後）！`;
-          client.broadcast([{ type: 'text', text: txt }]);
-          db.run(`UPDATE boss_status SET last_alert_sent_notify_iso=? WHERE boss=?`, [toIso(now), row.boss]);
+        if (now.isSameOrAfter(notifyTime) && now.isBefore(notifyTime.clone().add(60, 'seconds'))) {
+          const already = row.last_alert_sent_notify_iso ? moment.tz(row.last_alert_sent_notify_iso, TZ) : null;
+          if (!already || already.isBefore(notifyTime)) {
+            db.all(`SELECT userId FROM users`, (err2, users) => {
+              if (err2) return console.error(err2);
+              users.forEach(u => {
+                client.pushMessage(u.userId, { type: 'text', text: `⚠️ ${row.boss} 即將重生！10 分鐘後出現！` });
+              });
+              db.run(`UPDATE boss_status SET last_alert_sent_notify_iso = ? WHERE boss = ?`, [toIso(now), row.boss]);
+            });
+          }
         }
-      } catch (e) {
-        console.error('cron send error', e);
-      }
+      } catch (e) { console.error(e); }
     });
   });
 });
 
-// ------------------------ start server ------------------------
 app.listen(PORT, () => console.log(`LINE Boss Reminder Bot running on port ${PORT}`));
