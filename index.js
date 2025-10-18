@@ -24,7 +24,7 @@ const client = new Client(config);
 // ===== JSON 儲存 =====
 const bossFile = path.resolve("./boss.json");
 let bossData = {};
-let notifyAll = true; // 全局通知開關，可存到 JSON 持久化
+let notifyAll = true;
 
 if (fs.existsSync(bossFile)) {
   bossData = JSON.parse(fs.readFileSync(bossFile));
@@ -41,10 +41,11 @@ function saveBossData() {
 // ===== Express =====
 const app = express();
 
-// LINE webhook route
-app.post("/webhook", middleware(config), async (req, res) => {
+// 先解析 JSON，再套 middleware
+app.post("/webhook", express.json(), middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
+    if (!events) return res.sendStatus(200);
     await Promise.all(events.map(handleEvent));
     res.sendStatus(200);
   } catch (err) {
@@ -112,10 +113,10 @@ async function handleEvent(event) {
       return;
     }
 
-    // 小時.分鐘格式計算
     const raw = parseFloat(remain);
     const h = Math.floor(raw);
     const m = Math.round((raw - h) * 100);
+
     bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
     bossData[name].notified = false;
     saveBossData();
@@ -189,8 +190,8 @@ async function handleEvent(event) {
 // ===== 每分鐘檢查重生前10分鐘提醒 =====
 cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
-  const hour = now.hour(); // 0~23
-  const targetId = process.env.USER_ID; // 固定推播到環境變數群組
+  const hour = now.hour();
+  const targetId = process.env.USER_ID;
 
   if (!targetId) {
     console.error("❌ USER_ID 尚未設定");
@@ -202,14 +203,12 @@ cron.schedule("* * * * *", async () => {
 
     const diff = dayjs(boss.nextRespawn).tz(TW_ZONE).diff(now, "minute");
 
-    // 前10分鐘提醒
     if (diff <= 10 && diff > 9 && !boss.notified && notifyAll) {
       const respTime = dayjs(boss.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      const prefix = hour >= 9 && hour < 24 ? "@ALL " : "";
       try {
         await client.pushMessage(targetId, {
           type: "text",
-          text: `${prefix}⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）`,
+          text: `${hour >= 9 && hour < 24 ? "@ALL " : ""}⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）`,
         });
         boss.notified = true;
         saveBossData();
@@ -219,7 +218,6 @@ cron.schedule("* * * * *", async () => {
       }
     }
 
-    // 若時間已過，重置下一輪
     if (diff <= 0) {
       const nextTime = dayjs(boss.nextRespawn).tz(TW_ZONE).add(boss.interval, "hour").toISOString();
       boss.nextRespawn = nextTime;
@@ -231,6 +229,5 @@ cron.schedule("* * * * *", async () => {
 });
 
 // ===== 啟動伺服器 =====
-app.listen(process.env.PORT || 10000, () => {
-  console.log("🚀 LINE Boss Reminder Bot 已啟動");
-});
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`));
