@@ -15,7 +15,7 @@ const config = {
 };
 const client = new Client(config);
 
-// ===== 檔案儲存 =====
+// ===== JSON 儲存 =====
 const bossFile = path.resolve("./boss.json");
 let bossData = {};
 
@@ -33,9 +33,8 @@ function saveBossData() {
 
 // ===== Express =====
 const app = express();
-app.use(express.json()); // 必須在 middleware 前
 
-// Webhook
+// LINE webhook route（使用 middleware 自動驗證，避免 body 衝突）
 app.post("/webhook", middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -156,7 +155,7 @@ async function handleEvent(event) {
   }
 }
 
-// ===== 定時檢查重生前10分鐘提醒 =====
+// ===== 每分鐘檢查重生前10分鐘提醒 =====
 cron.schedule("* * * * *", async () => {
   const now = dayjs();
   for (const [name, boss] of Object.entries(bossData)) {
