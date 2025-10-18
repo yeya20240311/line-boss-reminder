@@ -41,10 +41,12 @@ function saveBossData() {
 // ===== Express =====
 const app = express();
 
-// 先解析 JSON，再套 middleware
-app.post("/webhook", express.json(), middleware(config), async (req, res) => {
+// ===== Webhook 路由（修正 middleware） =====
+app.post("/webhook", express.raw({ type: "application/json" }), middleware(config), async (req, res) => {
   try {
-    const events = req.body.events;
+    // 解析原始 body
+    const body = JSON.parse(req.body.toString("utf-8"));
+    const events = body.events;
     if (!events) return res.sendStatus(200);
     await Promise.all(events.map(handleEvent));
     res.sendStatus(200);
