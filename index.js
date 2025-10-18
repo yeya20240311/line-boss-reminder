@@ -3,9 +3,10 @@ import { Client, middleware } from "@line/bot-sdk";
 import dotenv from "dotenv";
 import cron from "node-cron";
 import dayjs from "dayjs";
-import bodyParser from "body-parser";
+import utc from "dayjs/plugin/utc.js";
 import { google } from "googleapis";
 
+dayjs.extend(utc);
 dotenv.config();
 
 const app = express();
@@ -42,8 +43,8 @@ async function loadBossData() {
     });
     const rows = res.data.values || [];
     bossData = {};
-    rows.forEach(([name, time, respawn]) => {
-      if (name) bossData[name] = { time, respawn };
+    rows.forEach(([name, interval, lastDeath]) => {
+      bossData[name] = { interval: parseFloat(interval), lastDeath };
     });
     console.log("✅ 已從 Google Sheets 載入資料");
   } catch (err) {
@@ -56,8 +57,8 @@ async function saveBossData() {
   try {
     const rows = Object.entries(bossData).map(([name, data]) => [
       name,
-      data.time,
-      data.respawn,
+      data.interval,
+      data.lastDeath || "",
     ]);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
@@ -80,7 +81,7 @@ app.get("/", (req, res) => res.send("LINE Boss Bot is running"));
 // ===== LINE Webhook =====
 app.post(
   "/webhook",
-  bodyParser.raw({ type: "application/json" }), // 使用 body-parser raw 保證是 Buffer
+  express.raw({ type: "application/json" }),
   middleware(lineConfig),
   async (req, res) => {
     try {
@@ -112,48 +113,91 @@ async function handleEvent(event) {
     return;
   }
 
-  // 🕒 /重生 王名 時間
+  // /幫助
+  if (text === "/幫助") {
+    await reply(
+      replyToken,
+      `可用指令：
+/設定 王名 間隔(小時)
+/重生 王名 剩餘時間(小時.分鐘)
+/刪除 王名
+/王
+/我的ID
+/開啟通知
+/關閉通知`
+    );
+    return;
+  }
+
+  // /我的ID
+  if (text === "/我的ID") {
+    const userId = event.source.userId || event.source.groupId || event.source.roomId;
+    await reply(replyToken, `你的ID: ${userId}`);
+    return;
+  }
+
+  // /設定 王名 間隔(小時)
+  if (text.startsWith("/設定")) {
+    const parts = text.split(" ");
+    if (parts.length !== 3) return await reply(replyToken, "⚠️ 指令格式錯誤");
+    const name = parts[1];
+    const interval = parseFloat(parts[2]);
+    if (isNaN(interval)) return await reply(replyToken, "⚠️ 時間格式錯誤");
+    bossData[name] = bossData[name] || {};
+    bossData[name].interval = interval;
+    saveBossData();
+    await reply(replyToken, `🕒 已設定 ${name} 重生間隔為 ${interval} 小時`);
+    return;
+  }
+
+  // /重生 王名 剩餘時間
   if (text.startsWith("/重生")) {
     const parts = text.split(" ");
-    if (parts.length < 3)
-      return await reply(replyToken, "⚠️ 指令格式錯誤：/重生 王名 時間(小時)");
-
+    if (parts.length !== 3) return await reply(replyToken, "⚠️ 指令格式錯誤");
     const name = parts[1];
-    const hours = parseFloat(parts[2]);
-    if (isNaN(hours)) return await reply(replyToken, "⚠️ 時間格式錯誤");
+    const remain = parseFloat(parts[2]);
+    if (isNaN(remain)) return await reply(replyToken, "⚠️ 時間格式錯誤");
 
-    const now = dayjs();
-    const respawn = now.add(hours * 60, "minute"); // 轉成分鐘計算
-    bossData[name] = {
-      time: now.format("HH:mm"),
-      respawn: respawn.format("HH:mm"),
-    };
+    const now = dayjs().utcOffset(8);
+    const hours = Math.floor(remain);
+    const minutes = Math.round((remain - hours) * 60);
+    const respawn = now.add(hours, "hour").add(minutes, "minute");
+
+    bossData[name] = bossData[name] || {};
+    bossData[name].lastDeath = respawn.toISOString();
 
     await saveBossData();
     await reply(replyToken, `🕒 已設定 ${name} 將於 ${respawn.format("HH:mm")} 重生`);
     return;
   }
 
-  // 📋 /BOSS 或 /王
-  if (text === "/BOSS" || text === "/王") {
-    if (Object.keys(bossData).length === 0)
-      return await reply(replyToken, "目前沒有紀錄的王。");
+  // /刪除 王名
+  if (text.startsWith("/刪除")) {
+    const parts = text.split(" ");
+    if (parts.length !== 2) return await reply(replyToken, "⚠️ 指令格式錯誤");
+    const name = parts[1];
+    delete bossData[name];
+    await saveBossData();
+    await reply(replyToken, `🗑 已刪除 ${name}`);
+    return;
+  }
 
-    const sorted = Object.entries(bossData).sort(
-      (a, b) => dayjs(b[1].respawn, "HH:mm").diff(dayjs(a[1].respawn, "HH:mm"))
-    );
-
-    const msg = sorted
+  // /王 查詢
+  if (text === "/王") {
+    const list = Object.entries(bossData)
+      .filter(([_, data]) => data.lastDeath)
+      .sort((a, b) =>
+        dayjs(b[1].lastDeath).diff(dayjs(a[1].lastDeath))
+      )
       .map(
-        ([n, d]) =>
-          `${n}：剩餘 ${Math.max(
-            dayjs(d.respawn, "HH:mm").diff(dayjs(), "minute"),
-            0
-          )} 分 → ${d.respawn}`
+        ([name, data]) => {
+          const remain = Math.max(dayjs(data.lastDeath).diff(dayjs(), "minute"), 0);
+          return `🕓 ${name} 剩餘 ${remain} 分（${dayjs(data.lastDeath).utcOffset(8).format("HH:mm")}）`;
+        }
       )
       .join("\n");
 
-    await reply(replyToken, msg);
+    await reply(replyToken, list || "尚無資料");
     return;
   }
 }
@@ -170,17 +214,22 @@ async function reply(token, message) {
 // ===== 自動通知（每分鐘檢查） =====
 cron.schedule("* * * * *", async () => {
   if (!notificationsEnabled) return;
+  const now = dayjs().utcOffset(8);
 
-  const now = dayjs();
   for (const [name, data] of Object.entries(bossData)) {
-    const respawn = dayjs(data.respawn, "HH:mm");
+    if (!data.lastDeath) continue;
+    const respawn = dayjs(data.lastDeath);
     const diff = respawn.diff(now, "minute");
 
     if (diff === 10) {
-      await client.pushMessage(process.env.GROUP_ID, {
-        type: "text",
-        text: `⚠️ ${name} 將於 ${data.respawn} 重生！（剩餘 10 分鐘）`,
-      });
+      try {
+        await client.pushMessage(process.env.GROUP_ID, {
+          type: "text",
+          text: `⚠️ ${name} 將於 ${respawn.format("HH:mm")} 重生！（剩餘 10 分鐘）`,
+        });
+      } catch (err) {
+        console.error("❌ 推播失敗：", err.originalError?.response?.data || err.message);
+      }
     }
   }
 });
