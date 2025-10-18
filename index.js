@@ -81,7 +81,7 @@ async function handleEvent(event) {
 
   // /我的ID
   if (text === "/我的ID") {
-    const id = event.source.userId || "無法取得";
+    const id = event.source.userId || event.source.groupId || "無法取得";
     await client.replyMessage(event.replyToken, {
       type: "text",
       text: `你的 ID：${id}`,
@@ -92,8 +92,16 @@ async function handleEvent(event) {
   // /設定 王名 間隔
   if (args[0] === "/設定" && args.length === 3) {
     const [_, name, hours] = args;
+    const num = parseFloat(hours);
+    if (isNaN(num) || num <= 0) {
+      await client.replyMessage(event.replyToken, {
+        type: "text",
+        text: "❌ 間隔格式錯誤，請輸入正確小時數",
+      });
+      return;
+    }
     bossData[name] = bossData[name] || {};
-    bossData[name].interval = parseFloat(hours);
+    bossData[name].interval = num;
     saveBossData();
     await client.replyMessage(event.replyToken, {
       type: "text",
@@ -113,9 +121,18 @@ async function handleEvent(event) {
       return;
     }
 
-    const raw = parseFloat(remain);
-    const h = Math.floor(raw);
-    const m = Math.round((raw - h) * 100);
+    // 解析 小時.分鐘
+    const parts = remain.split(".");
+    const h = parseInt(parts[0]);
+    const m = parts[1] ? parseInt(parts[1].padEnd(2, "0")) : 0;
+
+    if (isNaN(h) || isNaN(m)) {
+      await client.replyMessage(event.replyToken, {
+        type: "text",
+        text: "❌ 剩餘時間格式錯誤，請輸入 小時.分，例如 1.30 或 0.45",
+      });
+      return;
+    }
 
     bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
     bossData[name].notified = false;
@@ -150,13 +167,14 @@ async function handleEvent(event) {
         const b = bossData[name];
         if (!b.nextRespawn) return { name, diff: Infinity, text: `❌ ${name} 尚未設定重生時間` };
         const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
+        if (isNaN(diff)) return { name, diff: Infinity, text: `❌ ${name} 重生時間格式錯誤` };
         const h = Math.floor(diff / 60);
         const m = diff % 60;
         const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
         return { name, diff, text: `⚔️ ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）` };
       })
       .sort((a, b) => a.diff - b.diff)
-      .map(item => item.text)
+      .map((item) => item.text)
       .join("\n");
 
     await client.replyMessage(event.replyToken, {
@@ -200,8 +218,8 @@ cron.schedule("* * * * *", async () => {
 
   for (const [name, boss] of Object.entries(bossData)) {
     if (!boss.nextRespawn || !boss.interval) continue;
-
     const diff = dayjs(boss.nextRespawn).tz(TW_ZONE).diff(now, "minute");
+    if (isNaN(diff)) continue;
 
     if (diff <= 10 && diff > 9 && !boss.notified && notifyAll) {
       const respTime = dayjs(boss.nextRespawn).tz(TW_ZONE).format("HH:mm");
