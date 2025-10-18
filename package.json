@@ -1,7 +1,7 @@
 {
   "name": "line-boss-reminder",
-  "version": "1.0.0",
-  "description": "LINE遊戲王重生提醒Bot",
+  "version": "1.2.0",
+  "description": "LINE 遊戲王重生提醒 Bot（支援 Google Sheets 永久儲存資料）",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@line/bot-sdk": "^7.5.2",
+    "body-parser": "^1.20.2",
+    "dayjs": "^1.11.10",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
-    "node-cron": "^3.0.3",
-    "dayjs": "^1.11.10"
+    "googleapis": "^144.0.0",
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
