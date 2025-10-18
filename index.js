@@ -5,8 +5,8 @@ import fs from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import cron from "node-cron";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
 
 dotenv.config();
 dayjs.extend(utc);
@@ -40,6 +40,7 @@ function saveBossData() {
 // ===== Express =====
 const app = express();
 
+// LINE webhook route
 app.post("/webhook", middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -112,7 +113,7 @@ async function handleEvent(event) {
 
     const h = Math.floor(parseFloat(remain));
     const m = Math.round((parseFloat(remain) - h) * 60);
-    bossData[name].nextRespawn = dayjs().add(h, "hour").add(m, "minute").tz(TW_ZONE).toISOString();
+    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
     bossData[name].targetId = sourceId;
     bossData[name].notified = false;
     saveBossData();
@@ -125,7 +126,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // /刪除
+  // /刪除 王名
   if (args[0] === "/刪除" && args.length === 2) {
     const name = args[1];
     if (bossData[name]) {
@@ -144,19 +145,14 @@ async function handleEvent(event) {
     const list = Object.keys(bossData)
       .map((name) => {
         const b = bossData[name];
-        if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
+        if (!b.nextRespawn) return { name, diff: Infinity, text: `❌ ${name} 尚未設定重生時間` };
         const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
         const h = Math.floor(diff / 60);
         const m = diff % 60;
         const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-        return {
-          name,
-          diff,
-          text: `⚔️ ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）`
-        };
+        return { name, diff, text: `⚔️ ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）` };
       })
-      .filter(item => item.diff !== undefined)
-      .sort((a, b) => a.diff - b.diff) // 從最近的開始排列
+      .sort((a, b) => a.diff - b.diff)
       .map(item => item.text)
       .join("\n");
 
