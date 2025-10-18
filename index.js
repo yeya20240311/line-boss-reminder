@@ -111,9 +111,9 @@ async function handleEvent(event) {
       return;
     }
 
-    const h = Math.floor(parseFloat(remain));
-    const m = Math.round((parseFloat(remain) - h) * 60);
-    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
+    // ✅ 修正小數時間轉換為分鐘
+    const totalMinutes = Math.round(parseFloat(remain) * 60);
+    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(totalMinutes, "minute").toISOString();
     bossData[name].targetId = sourceId;
     bossData[name].notified = false;
     saveBossData();
@@ -121,7 +121,7 @@ async function handleEvent(event) {
     const respTime = dayjs(bossData[name].nextRespawn).tz(TW_ZONE).format("HH:mm");
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: `🕒 已設定 ${name} 將於 ${respTime} 重生 (台灣時間)`,
+      text: `🕒 已設定 ${name} 將於 ${respTime} 重生`, // 移除 (台灣時間)
     });
     return;
   }
