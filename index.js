@@ -10,25 +10,25 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// LINE BOT 設定
+// ===== LINE BOT 設定 =====
 const lineConfig = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET,
 };
 const client = new Client(lineConfig);
 
-// Google Sheets 設定
+// ===== Google Sheets 設定 =====
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const GOOGLE_SA = JSON.parse(process.env.GOOGLE_SA);
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 const auth = new google.auth.JWT(GOOGLE_SA.client_email, null, GOOGLE_SA.private_key, SCOPES);
 const sheets = google.sheets({ version: "v4", auth });
 
-// 資料暫存
+// ===== 資料暫存 =====
 let bossData = {};
 let notificationsEnabled = true; // 預設開啟通知
 
-// 🧩 從 Google Sheets 載入資料
+// ===== 載入 Google Sheets 資料 =====
 async function loadBossData() {
   try {
     const res = await sheets.spreadsheets.values.get({
@@ -46,7 +46,7 @@ async function loadBossData() {
   }
 }
 
-// 🧩 儲存到 Google Sheets
+// ===== 儲存資料到 Google Sheets =====
 async function saveBossData() {
   try {
     const rows = Object.entries(bossData).map(([name, data]) => [name, data.time, data.respawn]);
@@ -62,15 +62,13 @@ async function saveBossData() {
   }
 }
 
-// 初始化時載入資料
+// ===== 初始化時載入資料 =====
 await loadBossData();
 
-// 測試 Render ping（避免健康檢查出錯）
-app.get("/", (req, res) => {
-  res.send("LINE Boss Bot is running");
-});
+// ===== Render Ping 測試 =====
+app.get("/", (req, res) => res.send("LINE Boss Bot is running"));
 
-// LINE Webhook 主程式
+// ===== LINE Webhook 路由 =====
 app.post(
   "/webhook",
   (req, res, next) => {
@@ -80,17 +78,23 @@ app.post(
   },
   middleware(lineConfig),
   async (req, res) => {
-    Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
+    try {
+      await Promise.all(req.body.events.map(handleEvent));
+      res.status(200).end(); // ✅ 一定要回 200
+    } catch (err) {
+      console.error("❌ Webhook error:", err);
+      res.status(200).end(); // ✅ 即使錯誤也回 200
+    }
   }
 );
 
-// 指令處理
+// ===== 處理使用者指令 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
   const text = event.message.text.trim();
   const replyToken = event.replyToken;
 
-  // 🔔 開啟 / 關閉 通知
+  // 🔔 開啟/關閉通知
   if (text === "/開啟通知") {
     notificationsEnabled = true;
     await reply(replyToken, "🔔 已開啟所有通知");
@@ -105,14 +109,14 @@ async function handleEvent(event) {
   // 🕒 設定重生時間
   if (text.startsWith("/重生")) {
     const parts = text.split(" ");
-    if (parts.length < 3) return await reply(replyToken, "⚠️ 指令格式錯誤，請用：/重生 王名 時間(小時)");
+    if (parts.length < 3) return await reply(replyToken, "⚠️ 指令格式錯誤：/重生 王名 時間(小時)");
 
     const name = parts[1];
     const hours = parseFloat(parts[2]);
     if (isNaN(hours)) return await reply(replyToken, "⚠️ 時間格式錯誤");
 
     const now = dayjs();
-    const respawn = now.add(hours * 60, "minute");
+    const respawn = now.add(hours * 60, "minute"); // 將小時轉換成分鐘
     bossData[name] = {
       time: now.format("HH:mm"),
       respawn: respawn.format("HH:mm"),
@@ -126,24 +130,24 @@ async function handleEvent(event) {
   // 📋 查詢全部
   if (text === "/BOSS" || text === "/王") {
     if (Object.keys(bossData).length === 0) return await reply(replyToken, "目前沒有紀錄的王。");
+
     const sorted = Object.entries(bossData).sort(
       (a, b) => dayjs(b[1].respawn, "HH:mm").diff(dayjs(a[1].respawn, "HH:mm"))
     );
+
     const msg = sorted
       .map(
         ([n, d]) =>
-          `${n}：剩餘 ${Math.max(
-            dayjs(d.respawn, "HH:mm").diff(dayjs(), "minute"),
-            0
-          )} 分 → ${d.respawn}`
+          `${n}：剩餘 ${Math.max(dayjs(d.respawn, "HH:mm").diff(dayjs(), "minute"), 0)} 分 → ${d.respawn}`
       )
       .join("\n");
+
     await reply(replyToken, msg);
     return;
   }
 }
 
-// 回覆訊息
+// ===== 回覆訊息函式 =====
 async function reply(token, message) {
   try {
     await client.replyMessage(token, { type: "text", text: message });
@@ -152,13 +156,15 @@ async function reply(token, message) {
   }
 }
 
-// ⏰ 自動通知（每分鐘檢查）
+// ===== 自動通知（每分鐘檢查） =====
 cron.schedule("* * * * *", async () => {
   if (!notificationsEnabled) return;
+
   const now = dayjs();
   for (const [name, data] of Object.entries(bossData)) {
     const respawn = dayjs(data.respawn, "HH:mm");
     const diff = respawn.diff(now, "minute");
+
     if (diff === 10) {
       await client.pushMessage(process.env.GROUP_ID, {
         type: "text",
@@ -168,5 +174,6 @@ cron.schedule("* * * * *", async () => {
   }
 });
 
+// ===== 啟動服務 =====
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("🚀 LINE Boss Bot running"));
