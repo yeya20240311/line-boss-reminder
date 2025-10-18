@@ -41,17 +41,15 @@ function saveBossData() {
 // ===== Express =====
 const app = express();
 
-// ===== Webhook 路由（修正 middleware） =====
-app.post("/webhook", express.raw({ type: "application/json" }), middleware(config), async (req, res) => {
+// ===== Webhook 路由（正確 middleware） =====
+app.post("/webhook", middleware(config), async (req, res) => {
   try {
-    // 解析原始 body
-    const body = JSON.parse(req.body.toString("utf-8"));
-    const events = body.events;
+    const events = req.body.events;
     if (!events) return res.sendStatus(200);
     await Promise.all(events.map(handleEvent));
     res.sendStatus(200);
   } catch (err) {
-    console.error(err);
+    console.error("Webhook 處理錯誤:", err);
     res.sendStatus(500);
   }
 });
