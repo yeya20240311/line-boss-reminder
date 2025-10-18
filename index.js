@@ -8,7 +8,6 @@ import { google } from "googleapis";
 dotenv.config();
 
 const app = express();
-app.use(express.json());
 
 // ===== LINE BOT 設定 =====
 const lineConfig = {
@@ -26,7 +25,7 @@ const sheets = google.sheets({ version: "v4", auth });
 
 // ===== 資料暫存 =====
 let bossData = {};
-let notificationsEnabled = true; // 預設開啟通知
+let notificationsEnabled = true;
 
 // ===== 載入 Google Sheets 資料 =====
 async function loadBossData() {
@@ -65,36 +64,33 @@ async function saveBossData() {
 // ===== 初始化時載入資料 =====
 await loadBossData();
 
-// ===== Render Ping 測試 =====
+// ===== 測試連線 =====
 app.get("/", (req, res) => res.send("LINE Boss Bot is running"));
 
-// ===== LINE Webhook 路由 =====
+// ===== LINE Webhook =====
 app.post(
   "/webhook",
-  (req, res, next) => {
-    const signature = req.headers["x-line-signature"];
-    if (!signature) return res.status(200).send("Ignored non-LINE request");
-    next();
-  },
+  express.raw({ type: "application/json" }), // ✅ 保留原始 body
   middleware(lineConfig),
   async (req, res) => {
     try {
-      await Promise.all(req.body.events.map(handleEvent));
-      res.status(200).end(); // ✅ 一定要回 200
+      const events = JSON.parse(req.body.toString()).events;
+      await Promise.all(events.map(handleEvent));
+      res.status(200).end();
     } catch (err) {
       console.error("❌ Webhook error:", err);
-      res.status(200).end(); // ✅ 即使錯誤也回 200
+      res.status(200).end();
     }
   }
 );
 
-// ===== 處理使用者指令 =====
+// ===== 處理指令 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
   const text = event.message.text.trim();
   const replyToken = event.replyToken;
 
-  // 🔔 開啟/關閉通知
+  // 🔔 開啟 / 關閉通知
   if (text === "/開啟通知") {
     notificationsEnabled = true;
     await reply(replyToken, "🔔 已開啟所有通知");
@@ -106,7 +102,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 🕒 設定重生時間
+  // 🕒 /重生 王名 時間
   if (text.startsWith("/重生")) {
     const parts = text.split(" ");
     if (parts.length < 3) return await reply(replyToken, "⚠️ 指令格式錯誤：/重生 王名 時間(小時)");
@@ -116,7 +112,7 @@ async function handleEvent(event) {
     if (isNaN(hours)) return await reply(replyToken, "⚠️ 時間格式錯誤");
 
     const now = dayjs();
-    const respawn = now.add(hours * 60, "minute"); // 將小時轉換成分鐘
+    const respawn = now.add(hours * 60, "minute");
     bossData[name] = {
       time: now.format("HH:mm"),
       respawn: respawn.format("HH:mm"),
@@ -127,7 +123,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // 📋 查詢全部
+  // 📋 /BOSS 或 /王
   if (text === "/BOSS" || text === "/王") {
     if (Object.keys(bossData).length === 0) return await reply(replyToken, "目前沒有紀錄的王。");
 
