@@ -111,9 +111,11 @@ async function handleEvent(event) {
       return;
     }
 
-    // ✅ 修正小數時間轉換為分鐘
-    const totalMinutes = Math.round(parseFloat(remain) * 60);
-    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(totalMinutes, "minute").toISOString();
+    // ✅ 小時.分鐘格式正確換算
+    const raw = parseFloat(remain);
+    const h = Math.floor(raw);
+    const m = Math.round((raw - h) * 100); // 小數部分乘 100，代表分鐘
+    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
     bossData[name].targetId = sourceId;
     bossData[name].notified = false;
     saveBossData();
@@ -121,7 +123,7 @@ async function handleEvent(event) {
     const respTime = dayjs(bossData[name].nextRespawn).tz(TW_ZONE).format("HH:mm");
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: `🕒 已設定 ${name} 將於 ${respTime} 重生`, // 移除 (台灣時間)
+      text: `🕒 已設定 ${name} 將於 ${respTime} 重生`,
     });
     return;
   }
