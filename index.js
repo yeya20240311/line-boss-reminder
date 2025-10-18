@@ -3,7 +3,6 @@ import { Client, middleware } from "@line/bot-sdk";
 import dotenv from "dotenv";
 import cron from "node-cron";
 import dayjs from "dayjs";
-import { google } from "googleapis";
 
 dotenv.config();
 
@@ -16,62 +15,9 @@ const lineConfig = {
 };
 const client = new Client(lineConfig);
 
-// ===== Google Sheets 設定 =====
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const GOOGLE_SA = JSON.parse(process.env.GOOGLE_SA);
-const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
-const auth = new google.auth.JWT(
-  GOOGLE_SA.client_email,
-  null,
-  GOOGLE_SA.private_key,
-  SCOPES
-);
-const sheets = google.sheets({ version: "v4", auth });
-
 // ===== 資料暫存 =====
-let bossData = {};
+let bossData = {}; // { 王名: { time: 'HH:mm', respawn: 'HH:mm' } }
 let notificationsEnabled = true;
-
-// ===== 載入 Google Sheets 資料 =====
-async function loadBossData() {
-  try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "BOSS!A2:C",
-    });
-    const rows = res.data.values || [];
-    bossData = {};
-    rows.forEach(([name, time, respawn]) => {
-      bossData[name] = { time, respawn };
-    });
-    console.log("✅ 已從 Google Sheets 載入資料");
-  } catch (err) {
-    console.error("❌ 無法載入資料：", err.message);
-  }
-}
-
-// ===== 儲存資料到 Google Sheets =====
-async function saveBossData() {
-  try {
-    const rows = Object.entries(bossData).map(([name, data]) => [
-      name,
-      data.time,
-      data.respawn,
-    ]);
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "BOSS!A2:C",
-      valueInputOption: "RAW",
-      requestBody: { values: rows },
-    });
-    console.log("✅ 已儲存至 Google Sheets");
-  } catch (err) {
-    console.error("❌ 無法儲存資料：", err.message);
-  }
-}
-
-// ===== 初始化時載入資料 =====
-await loadBossData();
 
 // ===== 測試連線 =====
 app.get("/", (req, res) => res.send("LINE Boss Bot is running"));
@@ -79,11 +25,11 @@ app.get("/", (req, res) => res.send("LINE Boss Bot is running"));
 // ===== LINE Webhook =====
 app.post(
   "/webhook",
-  express.raw({ type: "application/json" }), // 保留原始 body
+  express.json(), // 用 express.json() 解析 JSON body
   middleware(lineConfig),
   async (req, res) => {
     try {
-      const events = req.body.events; // 不再用 JSON.parse
+      const events = req.body.events;
       await Promise.all(events.map(handleEvent));
       res.status(200).end();
     } catch (err) {
@@ -131,7 +77,6 @@ async function handleEvent(event) {
       respawn: respawn.format("HH:mm"),
     };
 
-    await saveBossData();
     await reply(
       replyToken,
       `🕒 已設定 ${name} 將於 ${respawn.format("HH:mm")} 重生`
