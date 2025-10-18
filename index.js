@@ -4,7 +4,6 @@ import dotenv from "dotenv";
 import dayjs from "dayjs";
 import cron from "node-cron";
 import { google } from "googleapis";
-import fs from "fs";
 
 dotenv.config();
 
@@ -15,30 +14,68 @@ const config = {
 };
 const client = new Client(config);
 
-// ===== Google Sheets 設定 =====
+// ===== Google Sheets =====
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+const GOOGLE_SA = JSON.parse(process.env.GOOGLE_SA);
 
-// 將環境變數 GOOGLE_SA 寫成暫時檔案
-fs.writeFileSync("/tmp/service_account.json", process.env.GOOGLE_SA);
-
-const credentials = JSON.parse(fs.readFileSync("/tmp/service_account.json"));
-const auth = new google.auth.JWT(
-  credentials.client_email,
-  null,
-  credentials.private_key,
-  ["https://www.googleapis.com/auth/spreadsheets"]
-);
+const auth = new google.auth.GoogleAuth({
+  credentials: GOOGLE_SA,
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+});
 const sheets = google.sheets({ version: "v4", auth });
 
-// ===== Express =====
+// ===== 全域變數 =====
+let bossData = {};
+let notificationsEnabled = true;
+
+// ===== Google Sheets 載入資料 =====
+async function loadBossData() {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "BOSS!A2:C",
+    });
+    const rows = res.data.values || [];
+    bossData = {};
+    for (const row of rows) {
+      const [name, interval, lastDeath] = row;
+      bossData[name] = { interval: parseFloat(interval), lastDeath };
+    }
+    console.log("✅ 已從 Google Sheets 載入資料");
+  } catch (err) {
+    console.error("❌ 無法載入資料：", err);
+  }
+}
+
+// ===== 儲存資料到 Google Sheets =====
+async function saveBossData() {
+  try {
+    const values = Object.entries(bossData).map(([name, data]) => [
+      name,
+      data.interval || "",
+      data.lastDeath || "",
+    ]);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "BOSS!A2:C",
+      valueInputOption: "RAW",
+      requestBody: { values },
+    });
+  } catch (err) {
+    console.error("❌ 無法儲存資料：", err);
+  }
+}
+
+// ===== Express App =====
 const app = express();
+
 app.post(
   "/webhook",
-  express.raw({ type: "application/json" }),
+  express.json({ type: "application/json" }),
   middleware(config),
   async (req, res) => {
     try {
-      const events = JSON.parse(req.body.toString()).events;
+      const events = req.body.events;
       await Promise.all(events.map(handleEvent));
       res.sendStatus(200);
     } catch (err) {
@@ -50,49 +87,12 @@ app.post(
 
 app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 
-// ===== Boss 資料操作 =====
-let bossData = {};
-let notifyEnabled = true; // 全部通知開關
-
-async function loadBossData() {
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: "A2:D1000",
-  });
-  const rows = res.data.values || [];
-  const data = {};
-  for (const row of rows) {
-    const [name, interval, nextRespawn, notified] = row;
-    if (!name) continue;
-    data[name] = {
-      interval: parseFloat(interval),
-      nextRespawn,
-      notified: notified === "true",
-    };
-  }
-  bossData = data;
-}
-
-async function saveBossData() {
-  const values = Object.entries(bossData).map(([name, b]) => [
-    name,
-    b.interval,
-    b.nextRespawn,
-    b.notified ? "true" : "false",
-  ]);
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: "A2:D1000",
-    valueInputOption: "RAW",
-    requestBody: { values },
-  });
-}
-
 // ===== 指令處理 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
-  const userId = event.source.userId || event.source.groupId;
+  const userId =
+    event.source.groupId || event.source.roomId || event.source.userId;
   const text = event.message.text.trim();
   const args = text.split(" ");
 
@@ -100,49 +100,33 @@ async function handleEvent(event) {
   if (text === "/幫助") {
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: `可用指令：
+      text: `📜 指令說明：
 /設定 王名 時間(小時)
 /重生 王名 剩餘時間(小時.分)
 /刪除 王名
 /王
+/我的ID
 /開啟通知
-/關閉通知
-/我的ID`,
+/關閉通知`,
     });
     return;
   }
 
   // /我的ID
   if (text === "/我的ID") {
+    const id =
+      event.source.groupId || event.source.roomId || event.source.userId;
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: `你的ID: ${userId}`,
+      text: `你的ID: ${id}`,
     });
-    return;
-  }
-
-  // /開啟通知
-  if (text === "/開啟通知") {
-    notifyEnabled = true;
-    await client.replyMessage(event.replyToken, { type: "text", text: "✅ 已開啟全部通知" });
-    return;
-  }
-
-  // /關閉通知
-  if (text === "/關閉通知") {
-    notifyEnabled = false;
-    await client.replyMessage(event.replyToken, { type: "text", text: "✅ 已關閉全部通知" });
     return;
   }
 
   // /設定 王名 時間
   if (args[0] === "/設定" && args.length === 3) {
     const [_, name, hours] = args;
-    bossData[name] = {
-      interval: parseFloat(hours),
-      nextRespawn: null,
-      notified: false,
-    };
+    bossData[name] = { interval: parseFloat(hours), lastDeath: null };
     await saveBossData();
     await client.replyMessage(event.replyToken, {
       type: "text",
@@ -155,16 +139,24 @@ async function handleEvent(event) {
   if (args[0] === "/重生" && args.length === 3) {
     const [_, name, remain] = args;
     if (!bossData[name]) {
-      await client.replyMessage(event.replyToken, { type: "text", text: `${name} 尚未設定` });
+      await client.replyMessage(event.replyToken, {
+        type: "text",
+        text: `${name} 尚未設定`,
+      });
       return;
     }
-    const totalMins = Math.round(parseFloat(remain) * 60);
-    const nextRespawn = dayjs().add(totalMins, "minute").add(8, "hour"); // +8小時台灣
-    bossData[name].nextRespawn = nextRespawn.toISOString();
-    bossData[name].notified = false;
+    const hours = Math.floor(parseFloat(remain));
+    const mins = Math.round((parseFloat(remain) - hours) * 100);
+    const respawnTime = dayjs()
+      .add(hours, "hour")
+      .add(mins, "minute")
+      .format("YYYY-MM-DD HH:mm");
+    bossData[name].lastDeath = respawnTime;
     await saveBossData();
-    const respTime = nextRespawn.format("HH:mm");
-    await client.replyMessage(event.replyToken, { type: "text", text: `🕒 已設定 ${name} 將於 ${respTime} 重生` });
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `🕒 已設定 ${name} 將於 ${dayjs(respawnTime).format("HH:mm")} 重生`,
+    });
     return;
   }
 
@@ -173,54 +165,84 @@ async function handleEvent(event) {
     const name = args[1];
     delete bossData[name];
     await saveBossData();
-    await client.replyMessage(event.replyToken, { type: "text", text: `🗑 已刪除 ${name}` });
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `🗑 已刪除 ${name}`,
+    });
     return;
   }
 
-  // /王
+  // /王 → 依時間排序（最近重生的排最前）
   if (text === "/王") {
     const list = Object.entries(bossData)
-      .filter(([_, b]) => b.nextRespawn)
-      .sort((a, b) => dayjs(a[1].nextRespawn) - dayjs(b[1].nextRespawn))
-      .map(([name, b]) => {
-        const remainMins = dayjs(b.nextRespawn).diff(dayjs(), "minute");
-        const h = Math.floor(remainMins / 60);
-        const m = remainMins % 60;
-        const respTime = dayjs(b.nextRespawn).format("HH:mm");
+      .filter(([_, data]) => data.lastDeath)
+      .sort(
+        (a, b) =>
+          dayjs(a[1].lastDeath).diff(dayjs()) -
+          dayjs(b[1].lastDeath).diff(dayjs())
+      )
+      .map(([name, data]) => {
+        const diff = dayjs(data.lastDeath).diff(dayjs(), "minute");
+        const h = Math.floor(diff / 60);
+        const m = diff % 60;
+        const respTime = dayjs(data.lastDeath).format("HH:mm");
         return `🕓 ${name} 剩餘 ${h}小時${m}分（預定 ${respTime}）`;
       })
-      .reverse() // 從最近的開始排列
       .join("\n");
-    await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無資料" });
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: list || "尚無資料",
+    });
+    return;
+  }
+
+  // /開啟通知
+  if (text === "/開啟通知") {
+    notificationsEnabled = true;
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "✅ 已開啟通知（重生前10分鐘將推播）",
+    });
+    return;
+  }
+
+  // /關閉通知
+  if (text === "/關閉通知") {
+    notificationsEnabled = false;
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "🚫 已關閉通知（不再推播提醒）",
+    });
     return;
   }
 }
 
 // ===== 每分鐘檢查重生前10分鐘 =====
 cron.schedule("* * * * *", async () => {
-  await loadBossData();
+  if (!notificationsEnabled) return;
+
   const now = dayjs();
   for (const name in bossData) {
     const boss = bossData[name];
-    if (!boss.nextRespawn || !boss.interval) continue;
+    if (!boss.lastDeath || !boss.interval) continue;
 
-    const diff = dayjs(boss.nextRespawn).diff(now, "minute");
-    if (diff <= 10 && diff >= 0 && notifyEnabled && !boss.notified) {
-      const respTime = dayjs(boss.nextRespawn).format("HH:mm");
+    const diff = dayjs(boss.lastDeath).diff(now, "minute");
+    if (diff <= 10 && diff > 9) {
+      const respTime = dayjs(boss.lastDeath).format("HH:mm");
       try {
         await client.pushMessage(process.env.USER_ID, {
           type: "text",
-          text: `⚠️ ${name} 將於 ${respTime} 重生！（剩餘 ${diff} 分鐘）`,
+          text: `⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）`,
         });
-        boss.notified = true;
-        await saveBossData();
       } catch (err) {
-        console.error(err);
+        console.error("❌ 推播失敗：", err);
       }
     }
   }
 });
 
-app.listen(process.env.PORT || 10000, () => {
+// ===== 啟動伺服器 =====
+app.listen(process.env.PORT || 10000, async () => {
+  await loadBossData();
   console.log("🚀 LINE Boss Bot running");
 });
