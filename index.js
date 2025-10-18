@@ -3,13 +3,9 @@ import { Client, middleware } from "@line/bot-sdk";
 import dotenv from "dotenv";
 import cron from "node-cron";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc.js";
-import timezone from "dayjs/plugin/timezone.js";
 import { google } from "googleapis";
 
 dotenv.config();
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 const app = express();
 
@@ -24,7 +20,12 @@ const client = new Client(lineConfig);
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const GOOGLE_SA = JSON.parse(process.env.GOOGLE_SA);
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
-const auth = new google.auth.JWT(GOOGLE_SA.client_email, null, GOOGLE_SA.private_key, SCOPES);
+const auth = new google.auth.JWT(
+  GOOGLE_SA.client_email,
+  null,
+  GOOGLE_SA.private_key,
+  SCOPES
+);
 const sheets = google.sheets({ version: "v4", auth });
 
 // ===== 資料暫存 =====
@@ -52,7 +53,11 @@ async function loadBossData() {
 // ===== 儲存資料到 Google Sheets =====
 async function saveBossData() {
   try {
-    const rows = Object.entries(bossData).map(([name, data]) => [name, data.time, data.respawn]);
+    const rows = Object.entries(bossData).map(([name, data]) => [
+      name,
+      data.time,
+      data.respawn,
+    ]);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: "BOSS!A2:C",
@@ -74,16 +79,16 @@ app.get("/", (req, res) => res.send("LINE Boss Bot is running"));
 // ===== LINE Webhook =====
 app.post(
   "/webhook",
-  express.raw({ type: "application/json" }),
+  express.raw({ type: "application/json" }), // 保留原始 body
   middleware(lineConfig),
   async (req, res) => {
     try {
-      const events = req.body.toString() ? JSON.parse(req.body.toString()).events : [];
+      const events = req.body.events; // 不再用 JSON.parse
       await Promise.all(events.map(handleEvent));
-      res.sendStatus(200);
+      res.status(200).end();
     } catch (err) {
       console.error("❌ Webhook error:", err);
-      res.sendStatus(200);
+      res.status(200).end();
     }
   }
 );
@@ -106,16 +111,20 @@ async function handleEvent(event) {
     return;
   }
 
-  // 🕒 /重生 王名 剩餘時間
+  // 🕒 /重生 王名 時間
   if (text.startsWith("/重生")) {
     const parts = text.split(" ");
-    if (parts.length < 3) return await reply(replyToken, "⚠️ 指令格式錯誤：/重生 王名 時間(小時.分鐘)");
+    if (parts.length < 3)
+      return await reply(
+        replyToken,
+        "⚠️ 指令格式錯誤：/重生 王名 時間(小時.分鐘)"
+      );
 
     const name = parts[1];
     const hours = parseFloat(parts[2]);
     if (isNaN(hours)) return await reply(replyToken, "⚠️ 時間格式錯誤");
 
-    const now = dayjs().tz("Asia/Taipei");
+    const now = dayjs();
     const respawn = now.add(hours * 60, "minute");
     bossData[name] = {
       time: now.format("HH:mm"),
@@ -123,13 +132,17 @@ async function handleEvent(event) {
     };
 
     await saveBossData();
-    await reply(replyToken, `🕒 已設定 ${name} 將於 ${respawn.format("HH:mm")} 重生`);
+    await reply(
+      replyToken,
+      `🕒 已設定 ${name} 將於 ${respawn.format("HH:mm")} 重生`
+    );
     return;
   }
 
   // 📋 /BOSS 或 /王
   if (text === "/BOSS" || text === "/王") {
-    if (Object.keys(bossData).length === 0) return await reply(replyToken, "目前沒有紀錄的王。");
+    if (Object.keys(bossData).length === 0)
+      return await reply(replyToken, "目前沒有紀錄的王。");
 
     const sorted = Object.entries(bossData).sort(
       (a, b) => dayjs(b[1].respawn, "HH:mm").diff(dayjs(a[1].respawn, "HH:mm"))
@@ -138,7 +151,10 @@ async function handleEvent(event) {
     const msg = sorted
       .map(
         ([n, d]) =>
-          `${n}：剩餘 ${Math.max(dayjs(d.respawn, "HH:mm").diff(dayjs(), "minute"), 0)} 分 → ${d.respawn}`
+          `${n}：剩餘 ${Math.max(
+            dayjs(d.respawn, "HH:mm").diff(dayjs(), "minute"),
+            0
+          )} 分 → ${d.respawn}`
       )
       .join("\n");
 
@@ -152,7 +168,10 @@ async function reply(token, message) {
   try {
     await client.replyMessage(token, { type: "text", text: message });
   } catch (err) {
-    console.error("❌ 回覆訊息失敗：", err.originalError?.response?.data || err.message);
+    console.error(
+      "❌ 回覆訊息失敗：",
+      err.originalError?.response?.data || err.message
+    );
   }
 }
 
@@ -160,9 +179,9 @@ async function reply(token, message) {
 cron.schedule("* * * * *", async () => {
   if (!notificationsEnabled) return;
 
-  const now = dayjs().tz("Asia/Taipei");
+  const now = dayjs();
   for (const [name, data] of Object.entries(bossData)) {
-    const respawn = dayjs(data.respawn, "HH:mm").tz("Asia/Taipei");
+    const respawn = dayjs(data.respawn, "HH:mm");
     const diff = respawn.diff(now, "minute");
 
     if (diff === 10) {
