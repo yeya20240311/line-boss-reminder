@@ -24,6 +24,7 @@ const client = new Client(config);
 // ===== JSON 儲存 =====
 const bossFile = path.resolve("./boss.json");
 let bossData = {};
+let notifyAll = true; // 全局通知開關，可存到 JSON 持久化
 
 if (fs.existsSync(bossFile)) {
   bossData = JSON.parse(fs.readFileSync(bossFile));
@@ -60,7 +61,6 @@ async function handleEvent(event) {
 
   const text = event.message.text.trim();
   const args = text.split(/\s+/);
-  const sourceId = event.source.groupId || event.source.roomId || event.source.userId;
 
   // /幫助
   if (text === "/幫助") {
@@ -71,6 +71,8 @@ async function handleEvent(event) {
 /重生 王名 剩餘時間(小時.分)
 /刪除 王名
 /王
+/開啟通知
+/關閉通知
 /我的ID`,
     });
     return;
@@ -78,7 +80,7 @@ async function handleEvent(event) {
 
   // /我的ID
   if (text === "/我的ID") {
-    const id = sourceId || "無法取得";
+    const id = event.source.userId || "無法取得";
     await client.replyMessage(event.replyToken, {
       type: "text",
       text: `你的 ID：${id}`,
@@ -91,7 +93,6 @@ async function handleEvent(event) {
     const [_, name, hours] = args;
     bossData[name] = bossData[name] || {};
     bossData[name].interval = parseFloat(hours);
-    bossData[name].targetId = sourceId;
     saveBossData();
     await client.replyMessage(event.replyToken, {
       type: "text",
@@ -111,12 +112,11 @@ async function handleEvent(event) {
       return;
     }
 
-    // ✅ 小時.分鐘格式正確換算
+    // 小時.分鐘格式計算
     const raw = parseFloat(remain);
     const h = Math.floor(raw);
-    const m = Math.round((raw - h) * 100); // 小數部分乘 100，代表分鐘
+    const m = Math.round((raw - h) * 100);
     bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
-    bossData[name].targetId = sourceId;
     bossData[name].notified = false;
     saveBossData();
 
@@ -141,7 +141,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // /王 (原 /BOSS)
+  // /王
   if (text === "/王") {
     const now = dayjs().tz(TW_ZONE);
     const list = Object.keys(bossData)
@@ -164,23 +164,50 @@ async function handleEvent(event) {
     });
     return;
   }
+
+  // /開啟通知
+  if (text === "/開啟通知") {
+    notifyAll = true;
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "✅ 已開啟所有前10分鐘通知",
+    });
+    return;
+  }
+
+  // /關閉通知
+  if (text === "/關閉通知") {
+    notifyAll = false;
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 已關閉所有前10分鐘通知",
+    });
+    return;
+  }
 }
 
 // ===== 每分鐘檢查重生前10分鐘提醒 =====
 cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
   const hour = now.hour(); // 0~23
+  const targetId = process.env.USER_ID; // 固定推播到環境變數群組
+
+  if (!targetId) {
+    console.error("❌ USER_ID 尚未設定");
+    return;
+  }
+
   for (const [name, boss] of Object.entries(bossData)) {
-    if (!boss.nextRespawn || !boss.interval || !boss.targetId) continue;
+    if (!boss.nextRespawn || !boss.interval) continue;
 
     const diff = dayjs(boss.nextRespawn).tz(TW_ZONE).diff(now, "minute");
 
-    // 剩餘 10 分鐘 通知一次
-    if (diff <= 10 && diff > 9 && !boss.notified) {
+    // 前10分鐘提醒
+    if (diff <= 10 && diff > 9 && !boss.notified && notifyAll) {
       const respTime = dayjs(boss.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      const prefix = hour >= 9 && hour < 24 ? "@ALL " : ""; // 09:00~23:59 前面加 @ALL
+      const prefix = hour >= 9 && hour < 24 ? "@ALL " : "";
       try {
-        await client.pushMessage(boss.targetId, {
+        await client.pushMessage(targetId, {
           type: "text",
           text: `${prefix}⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）`,
         });
@@ -192,7 +219,7 @@ cron.schedule("* * * * *", async () => {
       }
     }
 
-    // 若時間已過，重置為下一輪
+    // 若時間已過，重置下一輪
     if (diff <= 0) {
       const nextTime = dayjs(boss.nextRespawn).tz(TW_ZONE).add(boss.interval, "hour").toISOString();
       boss.nextRespawn = nextTime;
