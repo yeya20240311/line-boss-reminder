@@ -189,7 +189,6 @@ async function handleEvent(event) {
 // ===== 每分鐘檢查重生前10分鐘提醒 =====
 cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
-  const hour = now.hour(); // 0~23
   const targetId = process.env.USER_ID; // 固定推播到環境變數群組
 
   if (!targetId) {
@@ -205,11 +204,10 @@ cron.schedule("* * * * *", async () => {
     // 前10分鐘提醒
     if (diff <= 10 && diff > 9 && !boss.notified && notifyAll) {
       const respTime = dayjs(boss.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      const prefix = hour >= 9 && hour < 24 ? "@ALL " : "";
       try {
         await client.pushMessage(targetId, {
           type: "text",
-          text: `${prefix}⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）`,
+          text: `⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）`,
         });
         boss.notified = true;
         saveBossData();
