@@ -11,8 +11,6 @@ dotenv.config();
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const app = express();
-
 // ===== LINE BOT 設定 =====
 const lineConfig = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -47,7 +45,7 @@ async function loadBossData() {
     bossData = {};
     rows.forEach(([name, interval, lastDeath]) => {
       bossData[name] = {
-        interval: parseFloat(interval) || 0,
+        interval: parseFloat(interval),
         lastDeath: lastDeath || null,
       };
     });
@@ -63,7 +61,7 @@ async function saveBossData() {
     const rows = Object.entries(bossData).map(([name, data]) => [
       name,
       data.interval,
-      data.lastDeath,
+      data.lastDeath || "",
     ]);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
@@ -77,24 +75,27 @@ async function saveBossData() {
   }
 }
 
-// ===== 初始化時載入資料 =====
+// ===== 初始化 =====
 await loadBossData();
 
-// ===== Express & LINE Webhook =====
+const app = express();
+
+// ===== 測試連線 =====
 app.get("/", (req, res) => res.send("LINE Boss Bot is running"));
 
+// ===== LINE Webhook =====
 app.post(
   "/webhook",
   express.raw({ type: "application/json" }),
   middleware(lineConfig),
   async (req, res) => {
     try {
-      const events = req.body.events;
+      const events = req.body.events; // 不需要 JSON.parse
       await Promise.all(events.map(handleEvent));
       res.status(200).end();
     } catch (err) {
       console.error("❌ Webhook error:", err);
-      res.status(500).end();
+      res.status(200).end();
     }
   }
 );
@@ -102,30 +103,11 @@ app.post(
 // ===== 處理指令 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
+
   const text = event.message.text.trim();
   const replyToken = event.replyToken;
-  const userId = event.source.userId;
 
-  // /幫助
-  if (text === "/幫助") {
-    await reply(replyToken, `可用指令：
-/設定 王名 間隔(小時)
-/重生 王名 剩餘時間(小時.分鐘)
-/刪除 王名
-/王
-/我的ID
-/開啟通知
-/關閉通知`);
-    return;
-  }
-
-  // /我的ID
-  if (text === "/我的ID") {
-    await reply(replyToken, `你的ID: ${userId}`);
-    return;
-  }
-
-  // /開啟通知 /關閉通知
+  // 🔔 開啟 / 關閉通知
   if (text === "/開啟通知") {
     notificationsEnabled = true;
     await reply(replyToken, "🔔 已開啟所有通知");
@@ -137,15 +119,19 @@ async function handleEvent(event) {
     return;
   }
 
-  // /設定 王名 間隔(小時)
+  // 🕒 /設定 王名 間隔(小時)
   if (text.startsWith("/設定")) {
     const parts = text.split(" ");
     if (parts.length !== 3) {
-      await reply(replyToken, "⚠️ 指令格式錯誤：/設定 王名 時間(小時)");
+      await reply(replyToken, "⚠️ 指令格式錯誤：/設定 王名 間隔(小時)");
       return;
     }
     const name = parts[1];
     const interval = parseFloat(parts[2]);
+    if (isNaN(interval)) {
+      await reply(replyToken, "⚠️ 時間格式錯誤");
+      return;
+    }
     bossData[name] = bossData[name] || {};
     bossData[name].interval = interval;
     await saveBossData();
@@ -153,7 +139,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // /重生 王名 剩餘時間
+  // 🕒 /重生 王名 剩餘時間
   if (text.startsWith("/重生")) {
     const parts = text.split(" ");
     if (parts.length !== 3) {
@@ -162,19 +148,21 @@ async function handleEvent(event) {
     }
     const name = parts[1];
     const remain = parseFloat(parts[2]);
-    if (!bossData[name]) {
-      bossData[name] = { interval: 0 };
+    if (isNaN(remain) || !bossData[name]) {
+      await reply(replyToken, "⚠️ 王名不存在或時間格式錯誤");
+      return;
     }
+    const hours = Math.floor(remain);
+    const mins = Math.round((remain - hours) * 60);
     const now = dayjs().tz("Asia/Taipei");
-    const minutes = Math.round(remain * 60);
-    const respawn = now.add(minutes, "minute");
-    bossData[name].lastDeath = respawn.toISOString();
+    bossData[name].lastDeath = now.add(hours, "hour").add(mins, "minute").toISOString();
     await saveBossData();
-    await reply(replyToken, `🕒 已設定 ${name} 將於 ${respawn.format("HH:mm")} 重生`);
+    const respTime = dayjs(bossData[name].lastDeath).tz("Asia/Taipei").format("HH:mm");
+    await reply(replyToken, `🕒 已設定 ${name} 將於 ${respTime} 重生`);
     return;
   }
 
-  // /刪除 王名
+  // 🗑 /刪除 王名
   if (text.startsWith("/刪除")) {
     const parts = text.split(" ");
     if (parts.length !== 2) return;
@@ -185,23 +173,46 @@ async function handleEvent(event) {
     return;
   }
 
-  // /王 或 /BOSS
-  if (text === "/王" || text === "/BOSS") {
-    const list = Object.entries(bossData)
-      .filter(([_, data]) => data.lastDeath)
-      .sort(
-        ([, a], [, b]) =>
-          dayjs(b.lastDeath).diff(dayjs(a.lastDeath)) // 最近的先
-      )
-      .map(
-        ([name, data]) =>
-          `${name}：剩餘 ${Math.max(
-            dayjs(data.lastDeath).diff(dayjs(), "minute"),
-            0
-          )} 分 → ${dayjs(data.lastDeath).tz("Asia/Taipei").format("HH:mm")}`
-      )
+  // 📋 /王 查詢
+  if (text === "/BOSS" || text === "/王") {
+    const list = Object.keys(bossData)
+      .filter((name) => bossData[name].lastDeath)
+      .sort((a, b) => {
+        return dayjs(bossData[b].lastDeath).diff(dayjs(bossData[a].lastDeath));
+      })
+      .map((name) => {
+        const remain = dayjs(bossData[name].lastDeath).add(bossData[name].interval, "hour").diff(dayjs(), "minute");
+        const respTime = dayjs(bossData[name].lastDeath).add(bossData[name].interval, "hour").tz("Asia/Taipei").format("HH:mm");
+        const h = Math.floor(remain / 60);
+        const m = remain % 60;
+        return `${name}：剩餘 ${h}小時${m}分（預定 ${respTime}）`;
+      })
       .join("\n");
+
     await reply(replyToken, list || "尚無資料");
+    return;
+  }
+
+  // /我的ID
+  if (text === "/我的ID") {
+    const userId = event.source.groupId || event.source.userId;
+    await reply(replyToken, `你的ID: ${userId}`);
+    return;
+  }
+
+  // /幫助
+  if (text === "/幫助") {
+    await reply(
+      replyToken,
+      `可用指令：
+/設定 王名 間隔(小時)
+/重生 王名 剩餘時間(小時.分鐘)
+/刪除 王名
+/王
+/我的ID
+/開啟通知
+/關閉通知`
+    );
     return;
   }
 }
@@ -215,13 +226,13 @@ async function reply(token, message) {
   }
 }
 
-// ===== 自動推播（前10分鐘提醒） =====
+// ===== 自動通知（每分鐘檢查） =====
 cron.schedule("* * * * *", async () => {
   if (!notificationsEnabled) return;
   const now = dayjs().tz("Asia/Taipei");
   for (const [name, data] of Object.entries(bossData)) {
-    if (!data.lastDeath) continue;
-    const respawn = dayjs(data.lastDeath).tz("Asia/Taipei");
+    if (!data.lastDeath || !data.interval) continue;
+    const respawn = dayjs(data.lastDeath).add(data.interval, "hour");
     const diff = respawn.diff(now, "minute");
     if (diff === 10) {
       await client.pushMessage(process.env.GROUP_ID, {
@@ -234,4 +245,4 @@ cron.schedule("* * * * *", async () => {
 
 // ===== 啟動服務 =====
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 LINE Boss Bot running on port ${PORT}`));
+app.listen(PORT, () => console.log("🚀 LINE Boss Bot running"));
