@@ -22,49 +22,11 @@ const client = new Client(config);
 
 // ===== Google Sheet 設定 =====
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEETS_ID);
-await doc.useServiceAccountAuth({
-  client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-  private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-});
+let sheet;
 
-await doc.loadInfo();
-const sheet = doc.sheetsByTitle["Boss"];
-await sheet.loadHeaderRow();
-
-// ===== 載入資料 =====
+// ===== 資料 =====
 let bossData = {};
-async function loadBossData() {
-  const rows = await sheet.getRows();
-  bossData = {};
-  rows.forEach((row) => {
-    bossData[row.王名] = {
-      interval: parseFloat(row.間隔小時),
-      nextRespawn: row.下次重生時間,
-      notified: row.是否已通知 === "TRUE",
-      notifyDate: row.通知日期設定 || "ALL",
-      missedCount: parseInt(row.錯過計數) || 0,
-    };
-  });
-  console.log(`✅ 已從 Google Sheets 載入資料 (${rows.length} 筆)`);
-}
-await loadBossData();
-
-// ===== 儲存資料 =====
-async function saveBossData() {
-  const rows = await sheet.getRows();
-  rows.forEach((row) => {
-    const data = bossData[row.王名];
-    if (data) {
-      row.間隔小時 = data.interval;
-      row.下次重生時間 = data.nextRespawn;
-      row.是否已通知 = data.notified ? "TRUE" : "FALSE";
-      row.通知日期設定 = data.notifyDate || "ALL";
-      row.錯過計數 = data.missedCount || 0;
-      row.save();
-    }
-  });
-  console.log("✅ 已更新 Google Sheet");
-}
+let notifyAll = true;
 
 // ===== Express =====
 const app = express();
@@ -81,9 +43,40 @@ app.post("/webhook", middleware(config), async (req, res) => {
 });
 app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 
-// ===== 指令處理 =====
-let notifyAll = true;
+// ===== 載入資料 =====
+async function loadBossData() {
+  const rows = await sheet.getRows();
+  bossData = {};
+  rows.forEach((row) => {
+    bossData[row.王名] = {
+      interval: parseFloat(row.間隔小時),
+      nextRespawn: row.下次重生時間,
+      notified: row.是否已通知 === "TRUE",
+      notifyDate: row.通知日期設定 || "ALL",
+      missedCount: parseInt(row.錯過計數) || 0,
+    };
+  });
+  console.log(`✅ 已從 Google Sheets 載入資料 (${rows.length} 筆)`);
+}
 
+// ===== 儲存資料 =====
+async function saveBossData() {
+  const rows = await sheet.getRows();
+  for (const row of rows) {
+    const data = bossData[row.王名];
+    if (data) {
+      row.間隔小時 = data.interval;
+      row.下次重生時間 = data.nextRespawn;
+      row.是否已通知 = data.notified ? "TRUE" : "FALSE";
+      row.通知日期設定 = data.notifyDate || "ALL";
+      row.錯過計數 = data.missedCount || 0;
+      await row.save();
+    }
+  }
+  console.log("✅ 已更新 Google Sheet");
+}
+
+// ===== 處理 LINE 指令 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
@@ -152,9 +145,7 @@ async function handleEvent(event) {
       .toISOString();
     bossData[name].notified = false;
     await saveBossData();
-    const respTime = dayjs(bossData[name].nextRespawn)
-      .tz(TW_ZONE)
-      .format("HH:mm");
+    const respTime = dayjs(bossData[name].nextRespawn).tz(TW_ZONE).format("HH:mm");
     await client.replyMessage(event.replyToken, {
       type: "text",
       text: `🕒 已設定 ${name} 將於 ${respTime} 重生`,
@@ -186,7 +177,6 @@ async function handleEvent(event) {
         const h = Math.floor(Math.abs(diff) / 60);
         const m = Math.abs(diff) % 60;
 
-        // 計算 missed 次數
         let missedCount = b.missedCount || 0;
         if (diff < 0 && b.interval) {
           missedCount = Math.ceil(Math.abs(diff) / (b.interval * 60));
@@ -239,7 +229,6 @@ cron.schedule("* * * * *", async () => {
   for (const [name, b] of Object.entries(bossData)) {
     if (!b.nextRespawn || !b.interval) continue;
 
-    // 檢查日期
     if (b.notifyDate !== "ALL") {
       const allowedDays = b.notifyDate.split(",");
       if (!allowedDays.includes(dayName)) continue;
@@ -263,14 +252,10 @@ cron.schedule("* * * * *", async () => {
     }
 
     if (diff <= 0) {
-      // 更新錯過次數
       b.missedCount = (b.missedCount || 0) + 1;
-
-      // 計算下一次重生時間
       const nextTime = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval, "hour").toISOString();
       b.nextRespawn = nextTime;
       b.notified = false;
-
       await saveBossData();
       console.log(`${name} 重生時間已更新為 ${nextTime}，錯過次數：${b.missedCount}`);
     }
@@ -278,5 +263,20 @@ cron.schedule("* * * * *", async () => {
 });
 
 // ===== 啟動伺服器 =====
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`));
+async function init() {
+  // Google Sheets 初始化
+  await doc.useServiceAccountAuth({
+    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  });
+  await doc.loadInfo();
+  sheet = doc.sheetsByTitle["Boss"];
+  await sheet.loadHeaderRow();
+  await loadBossData();
+
+  // 啟動 Express
+  const PORT = process.env.PORT || 10000;
+  app.listen(PORT, () => console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`));
+}
+
+init();
