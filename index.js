@@ -188,31 +188,29 @@ async function handleEvent(event) {
     return;
   }
 
-  // /王 顯示
+ // /王 顯示
 if (text === "/王") {
   const now = dayjs().tz(TW_ZONE);
   const list = Object.keys(bossData)
     .map(name => {
       const b = bossData[name];
-      if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
+      if (!b.nextRespawn) return { text: `❌ ${name} 尚未設定重生時間`, diff: Infinity };
       const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
       const h = Math.floor(Math.abs(diff) / 60);
       const m = Math.abs(diff) % 60;
       const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
       const icon = diff <= 0 ? "⚠️" : "⚔️"; // 過期用 ⚠️
       const missedText = b.missedCount && b.missedCount > 0 ? ` 過${b.missedCount}` : "";
-      return {
-        text: `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`,
-        diff: diff
-      };
+      return { text: `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`, diff };
     })
-    .sort((a,b)=>a.diff - b.diff) // 依剩餘時間排序，過期會排前面
+    .sort((a, b) => a.diff - b.diff) // 負數（過期）排前面，剩餘時間小的靠前
     .map(i => i.text)
     .join("\n");
 
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
 }
+
 
 
   // /開啟通知
