@@ -188,7 +188,7 @@ async function handleEvent(event) {
     return;
   }
 
- // /王 顯示
+// /王 顯示
 if (text === "/王") {
   const now = dayjs().tz(TW_ZONE);
   const list = Object.keys(bossData)
@@ -199,17 +199,18 @@ if (text === "/王") {
       const h = Math.floor(Math.abs(diff) / 60);
       const m = Math.abs(diff) % 60;
       const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      const icon = diff <= 0 ? "⚠️" : "⚔️"; // 過期用 ⚠️
+      const icon = (diff <= 0 || (b.missedCount && b.missedCount > 0)) ? "⚠️" : "⚔️"; // 過期或已記過就 ⚠️
       const missedText = b.missedCount && b.missedCount > 0 ? ` 過${b.missedCount}` : "";
       return { text: `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`, diff };
     })
-    .sort((a, b) => a.diff - b.diff) // 負數（過期）排前面，剩餘時間小的靠前
+    .sort((a, b) => a.diff - b.diff) // 剩餘時間小的靠前，過期排前面
     .map(i => i.text)
     .join("\n");
 
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
 }
+
 
 
 
