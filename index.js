@@ -157,23 +157,26 @@ async function handleEvent(event) {
   }
 
   // /重生 王名 剩餘時間
-  if (args[0] === "/重生" && args.length === 3) {
-    const [_, name, remainStr] = args;
-    if (!bossData[name] || !bossData[name].interval) {
-      await client.replyMessage(event.replyToken, { type: "text", text: `請先用 /設定 ${name} 間隔(小時.分)` });
-      return;
-    }
-    const raw = parseFloat(remainStr);
-    const h = Math.floor(raw);
-    const m = Math.round((raw - h) * 100);
-    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
-    bossData[name].notified = false;
-    bossData[name].missedCount = 0;
-    await saveBossDataToSheet();
-    const respTime = dayjs(bossData[name].nextRespawn).tz(TW_ZONE).format("HH:mm");
-    await client.replyMessage(event.replyToken, { type: "text", text: `🕒 已設定 ${name} 將於 ${respTime} 重生` });
+if (args[0] === "/重生" && args.length === 3) {
+  const [_, name, remainStr] = args;
+  if (!bossData[name] || !bossData[name].interval) {
+    await client.replyMessage(event.replyToken, { type: "text", text: `請先用 /設定 ${name} 間隔(小時.分)` });
     return;
   }
+  const raw = parseFloat(remainStr);
+  const h = Math.floor(raw);
+  const m = Math.round((raw - h) * 100);
+
+  // 重新倒數
+  bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
+  bossData[name].notified = false;
+  bossData[name].missedCount = 0; // 重置錯過次數
+
+  await saveBossDataToSheet();
+  const respTime = dayjs(bossData[name].nextRespawn).tz(TW_ZONE).format("HH:mm");
+  await client.replyMessage(event.replyToken, { type: "text", text: `🕒 已重新設定 ${name} 將於 ${respTime} 重生` });
+  return;
+}
 
   // /刪除 王名
   if (args[0] === "/刪除" && args.length === 2) {
