@@ -1,7 +1,7 @@
 {
   "name": "line-boss-reminder",
   "version": "1.0.0",
-  "description": "LINE遊戲王重生提醒Bot",
+  "description": "LINE 遊戲王重生提醒 Bot（支援 Google Sheets）",
   "main": "index.js",
   "type": "module",
   "scripts": {
