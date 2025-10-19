@@ -43,17 +43,6 @@ const SHEET_NAME = "Boss";
 let bossData = {};
 let notifyAll = true;
 
-// 初始化王資料
-function initBoss(name) {
-  bossData[name] = bossData[name] || {};
-  bossData[name].interval = bossData[name].interval || 0;
-  bossData[name].nextRespawn = bossData[name].nextRespawn || null;
-  bossData[name].notified = bossData[name].notified || false;
-  bossData[name].notifyDate = bossData[name].notifyDate || "ALL";
-  bossData[name].missedCount = bossData[name].missedCount || 0;
-  bossData[name].justReset = false;
-}
-
 // ===== 從 Google Sheets 載入資料 =====
 async function loadBossData() {
   try {
@@ -71,7 +60,6 @@ async function loadBossData() {
         notified: notified === "TRUE",
         notifyDate: notifyDate || "ALL",
         missedCount: parseInt(missedCount) || 0,
-        justReset: false
       };
     });
     console.log(`✅ 已從 Google Sheets 載入資料 (${rows.length} 筆)`);
@@ -105,7 +93,11 @@ async function saveBossDataToSheet() {
 
 // ===== Express =====
 const app = express();
-app.use(express.json());
+
+// 只在其他 route 才解析 JSON，LINE webhook 保留原始 middleware
+app.use("/other-json-route", express.json());
+
+// ===== LINE Webhook =====
 app.post("/webhook", middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -155,8 +147,12 @@ async function handleEvent(event) {
     const raw = parseFloat(intervalStr);
     const h = Math.floor(raw);
     const m = Math.round((raw - h) * 100);
-    initBoss(name);
-    bossData[name].interval = h + m/60;
+    bossData[name] = bossData[name] || {};
+    bossData[name].interval = h + m / 60;
+    bossData[name].nextRespawn = bossData[name].nextRespawn || null;
+    bossData[name].notified = bossData[name].notified || false;
+    bossData[name].notifyDate = bossData[name].notifyDate || "ALL";
+    bossData[name].missedCount = bossData[name].missedCount || 0;
     await saveBossDataToSheet();
     await client.replyMessage(event.replyToken, {
       type: "text",
@@ -175,13 +171,13 @@ async function handleEvent(event) {
     const raw = parseFloat(remainStr);
     const h = Math.floor(raw);
     const m = Math.round((raw - h) * 100);
-    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h,"hour").add(m,"minute").toISOString();
+    // 這裡直接重置倒數時間
+    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
     bossData[name].notified = false;
     bossData[name].missedCount = 0;
-    bossData[name].justReset = true;
     await saveBossDataToSheet();
     const respTime = dayjs(bossData[name].nextRespawn).tz(TW_ZONE).format("HH:mm");
-    await client.replyMessage(event.replyToken, { type: "text", text: `🕒 已重新設定 ${name} 將於 ${respTime} 重生` });
+    await client.replyMessage(event.replyToken, { type: "text", text: `🕒 已設定 ${name} 將於 ${respTime} 重生` });
     return;
   }
 
@@ -201,11 +197,12 @@ async function handleEvent(event) {
   // /王 顯示
   if (text === "/王") {
     const now = dayjs().tz(TW_ZONE);
+    const dayName = now.format("ddd").toUpperCase(); // MON, TUE ...
     const list = Object.keys(bossData)
       .map(name => {
         const b = bossData[name];
         if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
-        const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now,"minute");
+        const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
         const h = Math.floor(Math.abs(diff)/60);
         const m = Math.abs(diff) % 60;
         const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
@@ -219,7 +216,7 @@ async function handleEvent(event) {
         return aMin - bMin;
       })
       .join("\n");
-    await client.replyMessage(event.replyToken, { type:"text", text: list || "尚無任何王的資料" });
+    await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
     return;
   }
 
@@ -240,6 +237,7 @@ cron.schedule("* * * * *", async ()=>{
   for(const [name,b] of Object.entries(bossData)){
     if(!b.nextRespawn || !b.interval) continue;
 
+    // 日期推播限制
     if(b.notifyDate !== "ALL"){
       const allowedDays = b.notifyDate.split(",");
       if(!allowedDays.includes(dayName)) continue;
@@ -247,6 +245,7 @@ cron.schedule("* * * * *", async ()=>{
 
     const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now,"minute");
 
+    // 前10分鐘提醒
     if(diff <= 10 && diff > 9 && !b.notified && notifyAll){
       const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
       try{
@@ -257,16 +256,14 @@ cron.schedule("* * * * *", async ()=>{
       }catch(err){ console.error("推播失敗",err); }
     }
 
+    // 到時間自動累加錯過次數 & 設定下一次重生
     if(diff <= 0){
-      if(!b.justReset){
-        b.missedCount = (b.missedCount || 0) + 1;
-        const nextTime = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval,"hour").toISOString();
-        b.nextRespawn = nextTime;
-        console.log(`${name} 重生時間已更新為 ${nextTime}，錯過次數：${b.missedCount}`);
-      }
+      b.missedCount = (b.missedCount || 0) + 1;
+      const nextTime = dayjs().tz(TW_ZONE).add(b.interval,"hour").toISOString(); // 重新倒數
+      b.nextRespawn = nextTime;
       b.notified = false;
-      b.justReset = false;
       await saveBossDataToSheet();
+      console.log(`${name} 重生時間已更新為 ${nextTime}，錯過次數：${b.missedCount}`);
     }
   }
 });
