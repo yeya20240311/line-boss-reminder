@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "build": "echo 'Build completed. No runtime code executed.'"
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "@line/bot-sdk": "^7.5.2",
@@ -21,6 +20,6 @@
     "nodemon": "^3.1.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": "18.x"
   }
 }
