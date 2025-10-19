@@ -199,7 +199,7 @@ if (text === "/王") {
       const h = Math.floor(Math.abs(diff)/60);
       const m = Math.abs(diff) % 60;
       const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      const icon = (diff <= 0) ? "⚠️" : "⚔️"; // 過期改成 ⚠️
+      const icon = (diff <= 0 || (b.missedCount && b.missedCount > 0)) ? "⚠️" : "⚔️";
       const missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
       return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
     })
@@ -213,6 +213,7 @@ if (text === "/王") {
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
 }
+
 
 
 
