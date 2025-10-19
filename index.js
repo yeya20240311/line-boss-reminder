@@ -194,22 +194,34 @@ if (text === "/王") {
   const list = Object.keys(bossData)
     .map(name => {
       const b = bossData[name];
-      if (!b.nextRespawn) return { text: `❌ ${name} 尚未設定重生時間`, diff: Infinity };
+      if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
+
       const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-      const h = Math.floor(Math.abs(diff) / 60);
+      const h = Math.floor(Math.abs(diff)/60);
       const m = Math.abs(diff) % 60;
       const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      const icon = (diff <= 0 || (b.missedCount && b.missedCount > 0)) ? "⚠️" : "⚔️"; // 過期或已記過就 ⚠️
-      const missedText = b.missedCount && b.missedCount > 0 ? ` 過${b.missedCount}` : "";
-      return { text: `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`, diff };
+
+      let icon = "⚔️";
+      let missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
+
+      if (diff < 0) {
+        // 已過期，只在 /王 顯示
+        icon = "⚠️";
+      }
+
+      return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
     })
-    .sort((a, b) => a.diff - b.diff) // 剩餘時間小的靠前，過期排前面
-    .map(i => i.text)
+    .sort((a,b)=>{
+      const aMin = parseInt(a.match(/剩餘 (\d+)小時/)?.[1] || 999) * 60 + parseInt(a.match(/小時(\d+)分/)?.[1] || 0);
+      const bMin = parseInt(b.match(/剩餘 (\d+)小時/)?.[1] || 999) * 60 + parseInt(b.match(/小時(\d+)分/)?.[1] || 0);
+      return aMin - bMin;
+    })
     .join("\n");
 
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
 }
+
 
 
 
@@ -224,36 +236,44 @@ if (text === "/王") {
 // ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
 cron.schedule("* * * * *", async ()=>{
   const now = dayjs().tz(TW_ZONE);
-  const dayName = now.format("ddd").toUpperCase();
   const targetId = process.env.USER_ID;
   if(!targetId) return;
+
   let updated = false;
 
-  for(const [name,b] of Object.entries(bossData)){
+  for(const [name, b] of Object.entries(bossData)){
     if(!b.nextRespawn) continue;
     const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
     const diff = resp.diff(now,"minute");
 
-    // 過期自動加一次
-    if(diff<=0){
-      b.missedCount = (b.missedCount||0)+1;
+    // 過期只累計錯過，不通知
+    if(diff <= 0 && !b.missedCountHandled){
+      b.missedCount = (b.missedCount || 0) + 1;
       b.nextRespawn = resp.add(b.interval,"hour").toISOString();
       b.notified = false;
+      b.missedCountHandled = true; // 確保同一個過期事件只累計一次
       updated = true;
-      await client.pushMessage(targetId,{ type:"text", text:`⚠️ ${name} 已過期，自動累計錯過+1，下一次重生 ${dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm")}` });
+      // ⚠️ 已過期的通知不推播，僅更新 /王 顯示
     }
 
     // 前10分鐘通知
-    if(diff>0 && diff<=10 && notifyAll && !b.notified){
+    if(diff > 0 && diff <= 10 && !b.notified){
       b.notified = true;
       updated = true;
-      await client.pushMessage(targetId,{ type:"text", text:`⏰ ${name} 即將在 ${diff} 分鐘後重生` });
+      await client.pushMessage(targetId,{
+        type:"text",
+        text:`⏰ ${name} 即將在 ${diff} 分鐘後重生`
+      });
+    }
+
+    // 如果重生時間已更新，重置 missedCountHandled
+    if(diff > 0){
+      b.missedCountHandled = false;
     }
   }
 
   if(updated) await saveBossDataToSheet();
 });
-
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async ()=>{
