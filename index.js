@@ -91,7 +91,9 @@ async function saveBossDataToSheet() {
 
 // ===== Express =====
 const app = express();
-app.post("/webhook", express.json(), middleware(config), async (req, res) => {
+
+// ⚠️ 修正 webhook middleware 順序，不使用 express.json() 先解析
+app.post("/webhook", middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
     if (!events) return res.sendStatus(200);
@@ -102,6 +104,7 @@ app.post("/webhook", express.json(), middleware(config), async (req, res) => {
     res.sendStatus(500);
   }
 });
+
 app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 
 // ===== 指令處理 =====
@@ -268,7 +271,7 @@ cron.schedule("* * * * *", async () => {
       }
     }
 
-    // 重生時間到，自動更新下一次
+    // 到時自動更新下一次重生時間
     if (diff <= 0) {
       const nextTime = dayjs(boss.nextRespawn).tz(TW_ZONE).add(boss.interval, "hour").toISOString();
       boss.nextRespawn = nextTime;
@@ -282,6 +285,6 @@ cron.schedule("* * * * *", async () => {
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
-  await loadBossData();
+  await loadBossData(); // 啟動時先載入 Google Sheet
   console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`);
 });
