@@ -14,7 +14,7 @@
     "express": "^4.21.1",
     "node-cron": "^3.0.3",
     "dayjs": "^1.11.10",
-    "google-spreadsheet": "^3.4.0"
+    "googleapis": "^121.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
