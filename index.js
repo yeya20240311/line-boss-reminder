@@ -1,251 +1,243 @@
-import express from "express";
-import { Client, middleware } from "@line/bot-sdk";
-import dotenv from "dotenv";
 import fs from "fs";
-import path from "path";
-import dayjs from "dayjs";
+import express from "express";
+import { middleware, Client } from "@line/bot-sdk";
 import cron from "node-cron";
-import utc from "dayjs/plugin/utc.js";
-import timezone from "dayjs/plugin/timezone.js";
+import { google } from "googleapis";
 
-dotenv.config();
-dayjs.extend(utc);
-dayjs.extend(timezone);
-
-const TW_ZONE = "Asia/Taipei";
-
-// ===== LINE 設定 =====
 const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET,
 };
-const client = new Client(config);
 
-// ===== JSON 儲存 =====
-const bossFile = path.resolve("./boss.json");
-let bossData = {};
-let notifyAll = true;
-
-if (fs.existsSync(bossFile)) {
-  bossData = JSON.parse(fs.readFileSync(bossFile));
-  console.log("✅ JSON 已載入");
-} else {
-  fs.writeFileSync(bossFile, JSON.stringify({}, null, 2));
-  console.log("✅ 已建立 boss.json");
-}
-
-function saveBossData() {
-  fs.writeFileSync(bossFile, JSON.stringify(bossData, null, 2));
-}
-
-// ===== Express =====
 const app = express();
+const client = new Client(config);
+app.use(middleware(config));
 
-// ===== Webhook 路由（正確 middleware） =====
-app.post("/webhook", middleware(config), async (req, res) => {
+/* ------------------------- Google Sheets 初始化 ------------------------- */
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
+const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n");
+
+const auth = new google.auth.JWT(
+  GOOGLE_CLIENT_EMAIL,
+  null,
+  GOOGLE_PRIVATE_KEY,
+  ["https://www.googleapis.com/auth/spreadsheets"]
+);
+
+const sheets = google.sheets({ version: "v4", auth });
+
+/* ------------------------- 資料初始化 ------------------------- */
+let data = { bosses: {}, users: {} };
+
+// 讀取 Google Sheets
+async function loadData() {
   try {
-    const events = req.body.events;
-    if (!events) return res.sendStatus(200);
-    await Promise.all(events.map(handleEvent));
-    res.sendStatus(200);
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: "BossData!A2:E",
+    });
+
+    const rows = res.data.values || [];
+    data.bosses = {};
+    for (const row of rows) {
+      const [name, interval, respawn, notified] = row;
+      data.bosses[name] = {
+        interval: parseFloat(interval),
+        respawn: respawn ? new Date(respawn) : null,
+        notified: notified === "TRUE",
+      };
+    }
+
+    const userRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: "Users!A2:B",
+    });
+    const userRows = userRes.data.values || [];
+    data.users = {};
+    for (const [uid, enabled] of userRows) {
+      data.users[uid] = enabled === "TRUE";
+    }
+
+    console.log("✅ 已從 Google Sheets 載入資料");
   } catch (err) {
-    console.error("Webhook 處理錯誤:", err);
-    res.sendStatus(500);
+    console.error("❌ 載入資料失敗:", err);
   }
+}
+
+// 儲存到 Google Sheets
+async function saveData() {
+  try {
+    const bossValues = Object.entries(data.bosses).map(([name, b]) => [
+      name,
+      b.interval || "",
+      b.respawn ? b.respawn.toISOString() : "",
+      b.notified ? "TRUE" : "FALSE",
+    ]);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: "BossData!A2",
+      valueInputOption: "RAW",
+      requestBody: { values: bossValues },
+    });
+
+    const userValues = Object.entries(data.users).map(([uid, enabled]) => [
+      uid,
+      enabled ? "TRUE" : "FALSE",
+    ]);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: "Users!A2",
+      valueInputOption: "RAW",
+      requestBody: { values: userValues },
+    });
+  } catch (err) {
+    console.error("❌ 儲存資料失敗:", err);
+  }
+}
+
+/* ------------------------- 工具函式 ------------------------- */
+function hoursToMs(hours) {
+  const [h, m = 0] = hours.toString().split(".").map(Number);
+  return (h * 60 + m) * 60 * 1000;
+}
+
+function formatTime(date) {
+  return date.toLocaleString("zh-TW", { hour12: false });
+}
+
+function getRemainingMinutes(endTime) {
+  return Math.max(0, Math.floor((endTime - new Date()) / 60000));
+}
+
+/* ------------------------- LINE 指令處理 ------------------------- */
+app.post("/webhook", async (req, res) => {
+  const events = req.body.events;
+  await Promise.all(events.map(handleEvent));
+  res.sendStatus(200);
 });
 
-app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
-
-// ===== 指令處理 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
-
   const text = event.message.text.trim();
-  const args = text.split(/\s+/);
+  const userId = event.source.userId;
 
-  // /幫助
-  if (text === "/幫助") {
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: `可用指令：
-/設定 王名 間隔(小時)
-/重生 王名 剩餘時間(小時.分)
-/刪除 王名
-/王
-/開啟通知
-/關閉通知
-/我的ID`,
-    });
-    return;
+  if (!text.startsWith("/")) return;
+
+  const reply = (msg) => client.replyMessage(event.replyToken, { type: "text", text: msg });
+
+  /* ===== /設定 ===== */
+  if (text.startsWith("/設定")) {
+    const parts = text.split(" ");
+    if (parts.length < 3) return reply("格式錯誤，請用：/設定 王名 間隔(小時.分)");
+    const name = parts[1];
+    const intervalHours = parseFloat(parts[2]);
+    if (isNaN(intervalHours)) return reply("間隔格式錯誤，請用小時或小時.分");
+
+    data.bosses[name] = data.bosses[name] || {};
+    data.bosses[name].interval = intervalHours;
+    await saveData();
+
+    return reply(`✅ 已設定 ${name} 重生間隔 ${intervalHours} 小時`);
   }
 
-  // /我的ID
-  if (text === "/我的ID") {
-    const id = event.source.userId || event.source.groupId || "無法取得";
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: `你的 ID：${id}`,
-    });
-    return;
+  /* ===== /重生 ===== */
+  if (text.startsWith("/重生")) {
+    const parts = text.split(" ");
+    if (parts.length < 3) return reply("格式錯誤，請用：/重生 王名 剩餘時間(小時.分)");
+    const name = parts[1];
+    const remain = parseFloat(parts[2]);
+    if (isNaN(remain)) return reply("時間格式錯誤，請用小時.分");
+
+    if (!data.bosses[name] || !data.bosses[name].interval)
+      return reply(`請先使用 /設定 ${name} 間隔(小時.分)`);
+
+    const now = new Date();
+    const ms = hoursToMs(remain);
+    const respawn = new Date(now.getTime() + ms);
+    data.bosses[name].respawn = respawn;
+    data.bosses[name].notified = false;
+    await saveData();
+
+    return reply(`🕒 已登記 ${name} 剩餘 ${remain} 小時，預計 ${formatTime(respawn)} 重生`);
   }
 
-  // /設定 王名 間隔
-  if (args[0] === "/設定" && args.length === 3) {
-    const [_, name, hours] = args;
-    const num = parseFloat(hours);
-    if (isNaN(num) || num <= 0) {
-      await client.replyMessage(event.replyToken, {
-        type: "text",
-        text: "❌ 間隔格式錯誤，請輸入正確小時數",
-      });
-      return;
-    }
-    bossData[name] = bossData[name] || {};
-    bossData[name].interval = num;
-    saveBossData();
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: `✅ 已設定 ${name} 重生間隔 ${hours} 小時`,
-    });
-    return;
+  /* ===== /刪除 ===== */
+  if (text.startsWith("/刪除")) {
+    const parts = text.split(" ");
+    if (parts.length < 2) return reply("請輸入：/刪除 王名");
+    const name = parts[1];
+    if (!data.bosses[name]) return reply(`查無 ${name}`);
+    delete data.bosses[name];
+    await saveData();
+    return reply(`🗑️ 已刪除 ${name}`);
   }
 
-  // /重生 王名 剩餘時間
-  if (args[0] === "/重生" && args.length === 3) {
-    const [_, name, remain] = args;
-    if (!bossData[name] || !bossData[name].interval) {
-      await client.replyMessage(event.replyToken, {
-        type: "text",
-        text: `請先用 /設定 ${name} 間隔(小時)`,
-      });
-      return;
-    }
-
-    // 解析 小時.分鐘
-    const parts = remain.split(".");
-    const h = parseInt(parts[0]);
-    const m = parts[1] ? parseInt(parts[1].padEnd(2, "0")) : 0;
-
-    if (isNaN(h) || isNaN(m)) {
-      await client.replyMessage(event.replyToken, {
-        type: "text",
-        text: "❌ 剩餘時間格式錯誤，請輸入 小時.分，例如 1.30 或 0.45",
-      });
-      return;
-    }
-
-    bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
-    bossData[name].notified = false;
-    saveBossData();
-
-    const respTime = dayjs(bossData[name].nextRespawn).tz(TW_ZONE).format("HH:mm");
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: `🕒 已設定 ${name} 將於 ${respTime} 重生`,
-    });
-    return;
-  }
-
-  // /刪除 王名
-  if (args[0] === "/刪除" && args.length === 2) {
-    const name = args[1];
-    if (bossData[name]) {
-      delete bossData[name];
-      saveBossData();
-      await client.replyMessage(event.replyToken, { type: "text", text: `🗑 已刪除 ${name}` });
-    } else {
-      await client.replyMessage(event.replyToken, { type: "text", text: `${name} 不存在` });
-    }
-    return;
-  }
-
-  // /王
+  /* ===== /王 ===== */
   if (text === "/王") {
-    const now = dayjs().tz(TW_ZONE);
-    const list = Object.keys(bossData)
-      .map((name) => {
-        const b = bossData[name];
-        if (!b.nextRespawn) return { name, diff: Infinity, text: `❌ ${name} 尚未設定重生時間` };
-        const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-        if (isNaN(diff)) return { name, diff: Infinity, text: `❌ ${name} 重生時間格式錯誤` };
-        const h = Math.floor(diff / 60);
-        const m = diff % 60;
-        const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-        return { name, diff, text: `⚔️ ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）` };
-      })
-      .sort((a, b) => a.diff - b.diff)
-      .map((item) => item.text)
-      .join("\n");
+    if (Object.keys(data.bosses).length === 0) return reply("目前沒有王的資料");
 
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: list || "尚無任何王的資料",
-    });
-    return;
-  }
-
-  // /開啟通知
-  if (text === "/開啟通知") {
-    notifyAll = true;
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: "✅ 已開啟所有前10分鐘通知",
-    });
-    return;
-  }
-
-  // /關閉通知
-  if (text === "/關閉通知") {
-    notifyAll = false;
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: "❌ 已關閉所有前10分鐘通知",
-    });
-    return;
-  }
-}
-
-// ===== 每分鐘檢查重生前10分鐘提醒 =====
-cron.schedule("* * * * *", async () => {
-  const now = dayjs().tz(TW_ZONE);
-  const hour = now.hour();
-  const targetId = process.env.USER_ID;
-
-  if (!targetId) {
-    console.error("❌ USER_ID 尚未設定");
-    return;
-  }
-
-  for (const [name, boss] of Object.entries(bossData)) {
-    if (!boss.nextRespawn || !boss.interval) continue;
-    const diff = dayjs(boss.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-    if (isNaN(diff)) continue;
-
-    if (diff <= 10 && diff > 9 && !boss.notified && notifyAll) {
-      const respTime = dayjs(boss.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      try {
-        await client.pushMessage(targetId, {
-          type: "text",
-          text: `${hour >= 9 && hour < 24 ? "@ALL " : ""}⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）`,
-        });
-        boss.notified = true;
-        saveBossData();
-        console.log(`已推播提醒：${name}`);
-      } catch (err) {
-        console.error("推播失敗", err);
+    let msg = "👑 王列表：\n";
+    for (const [name, b] of Object.entries(data.bosses)) {
+      if (!b.respawn) {
+        msg += `\n${name}：尚未登記重生時間`;
+      } else {
+        const mins = getRemainingMinutes(new Date(b.respawn));
+        msg += `\n${name}：剩 ${Math.floor(mins / 60)}小${mins % 60}分\n→ ${formatTime(new Date(b.respawn))}`;
       }
     }
+    return reply(msg);
+  }
 
-    if (diff <= 0) {
-      const nextTime = dayjs(boss.nextRespawn).tz(TW_ZONE).add(boss.interval, "hour").toISOString();
-      boss.nextRespawn = nextTime;
-      boss.notified = false;
-      saveBossData();
-      console.log(`${name} 重生時間已更新為 ${nextTime}`);
+  /* ===== 通知設定 ===== */
+  if (text === "/開啟通知") {
+    data.users[userId] = true;
+    await saveData();
+    return reply("🔔 已開啟提醒通知");
+  }
+
+  if (text === "/關閉通知") {
+    data.users[userId] = false;
+    await saveData();
+    return reply("🔕 已關閉提醒通知");
+  }
+
+  if (text === "/我的ID") {
+    return reply(`你的ID是：${userId}`);
+  }
+
+  return reply("無效指令。可用指令：/設定 /重生 /刪除 /王 /開啟通知 /關閉通知 /我的ID");
+}
+
+/* ------------------------- 自動推播 ------------------------- */
+cron.schedule("* * * * *", async () => {
+  const now = new Date();
+  for (const [name, boss] of Object.entries(data.bosses)) {
+    if (!boss.respawn || boss.notified) continue;
+
+    const mins = getRemainingMinutes(new Date(boss.respawn));
+    if (mins <= 10 && mins > 0) {
+      boss.notified = true;
+      await saveData();
+
+      const message = `⚠️ ${name} 將於 ${mins} 分鐘後重生！`;
+
+      for (const [uid, enabled] of Object.entries(data.users)) {
+        if (enabled) {
+          try {
+            await client.pushMessage(uid, { type: "text", text: message });
+          } catch (err) {
+            console.error("推播失敗", uid, err);
+          }
+        }
+      }
     }
   }
 });
 
-// ===== 啟動伺服器 =====
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`));
+/* ------------------------- 啟動 ------------------------- */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, async () => {
+  console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`);
+  await loadData();
+});
