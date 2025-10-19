@@ -94,14 +94,12 @@ async function saveBossDataToSheet() {
 // ===== Express =====
 const app = express();
 
-// 非 webhook route 可解析 JSON
-app.use("/other", express.json());
-
-app.post("/webhook", middleware(config), async (req, res) => {
+// 這裡 middleware 要用 raw，避免簽名錯誤
+app.post("/webhook", express.raw({ type: "*/*" }), middleware(config), async (req, res) => {
   try {
-    const events = req.body.events;
+    const events = JSON.parse(req.body.toString()).events;
     if (!events) return res.sendStatus(200);
-    await Promise.all(events.map(handleEvent));
+    for (const e of events) await handleEvent(e);
     res.sendStatus(200);
   } catch (err) {
     console.error(err);
@@ -192,107 +190,89 @@ async function handleEvent(event) {
     return;
   }
 
-  // /王 顯示
+  // /王 顯示 (更新後)
   if (text === "/王") {
     const now = dayjs().tz(TW_ZONE);
     const dayName = now.format("ddd").toUpperCase();
-    const list = Object.keys(bossData)
-      .map(name => {
-        const b = bossData[name];
-        if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
+    let list = [];
 
-        let diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-        let icon = "⚔️";
-        let missedText = "";
+    for (const name of Object.keys(bossData)) {
+      const b = bossData[name];
+      if (!b.nextRespawn) {
+        list.push(`❌ ${name} 尚未設定重生時間`);
+        continue;
+      }
 
-        // 過期，累加錯過次數
-        if (diff <= 0) {
-          b.missedCount = (b.missedCount || 0) + 1;
-          b.nextRespawn = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval, "hour").toISOString();
-          diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-          b.notified = false;
-          await saveBossDataToSheet();
-          icon = "⚠️";
-          missedText = ` 過${b.missedCount}`;
-        }
+      let diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
+      let icon = "⚔️";
+      let missedText = "";
 
-        const h = Math.floor(Math.abs(diff) / 60);
-        const m = Math.abs(diff) % 60;
-        const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
+      if (diff <= 0) {
+        b.missedCount = (b.missedCount || 0) + 1;
+        b.nextRespawn = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval, "hour").toISOString();
+        diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
+        b.notified = false;
+        icon = "⚠️";
+        missedText = ` 過${b.missedCount}`;
+        await saveBossDataToSheet();
+      }
 
-        return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
-      })
-      .sort((a,b)=>{
-        const aMin = parseInt(a.match(/剩餘 (\d+)小時/)?.[1] || 999);
-        const bMin = parseInt(b.match(/剩餘 (\d+)小時/)?.繼續把完整 `/王` 排序與後面程式碼補齊，並包含 cron 與啟動部分：
+      const h = Math.floor(Math.abs(diff) / 60);
+      const m = Math.abs(diff) % 60;
+      const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
 
-```js
-        return aMin - bMin;
-      })
-      .join("\n");
+      list.push(`${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`);
+    }
 
-    await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
+    list.sort((a, b) => {
+      const aMin = parseInt(a.match(/剩餘 (\d+)小時/)?.[1] || 999);
+      const bMin = parseInt(b.match(/剩餘 (\d+)小時/)?.[1] || 999);
+      return aMin - bMin;
+    });
+
+    await client.replyMessage(event.replyToken, { type: "text", text: list.join("\n") || "尚無任何王的資料" });
     return;
   }
 
   // /開啟通知
-  if (text === "/開啟通知") { 
-    notifyAll = true; 
-    await client.replyMessage(event.replyToken,{ type:"text", text:"✅ 已開啟所有前10分鐘通知"}); 
-    return; 
+  if (text === "/開啟通知") {
+    notifyAll = true;
+    await client.replyMessage(event.replyToken, { type: "text", text: "✅ 已開啟所有前10分鐘通知" });
+    return;
   }
 
   // /關閉通知
-  if (text === "/關閉通知") { 
-    notifyAll = false; 
-    await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); 
-    return; 
+  if (text === "/關閉通知") {
+    notifyAll = false;
+    await client.replyMessage(event.replyToken, { type: "text", text: "🚫 已關閉所有前10分鐘通知" });
+    return;
   }
 }
 
-// ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
-cron.schedule("* * * * *", async ()=>{
+// ===== Cron 每分鐘檢查 =====
+cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
-  const dayName = now.format("ddd").toUpperCase();
-  const targetId = process.env.USER_ID;
-  if(!targetId) return;
-
-  for(const [name,b] of Object.entries(bossData)){
-    if(!b.nextRespawn || !b.interval) continue;
-
-    // 日期推播限制
-    if(b.notifyDate !== "ALL"){
-      const allowedDays = b.notifyDate.split(",");
-      if(!allowedDays.includes(dayName)) continue;
-    }
-
-    let diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now,"minute");
-
-    // 前10分鐘提醒
-    if(diff <= 10 && diff > 9 && !b.notified && notifyAll){
-      const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      try{
-        await client.pushMessage(targetId,{ type:"text", text:`⚠️ ${name} 將於 ${respTime} 重生！（剩餘 10 分鐘）` });
+  for (const [name, b] of Object.entries(bossData)) {
+    if (!b.nextRespawn || b.notified) continue;
+    const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
+    if (diff <= 10 && diff > 0 && notifyAll) {
+      try {
+        await client.pushMessage(process.env.LINE_USER_ID, {
+          type: "text",
+          text: `⏰ ${name} 即將於 ${dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm")} 重生！`,
+        });
         b.notified = true;
         await saveBossDataToSheet();
-        console.log(`已推播提醒：${name}`);
-      }catch(err){ console.error("推播失敗",err); }
-    }
-
-    // 過期自動更新下一次，累積錯過次數
-    if(diff <=0){
-      b.missedCount = (b.missedCount || 0) + 1;
-      b.nextRespawn = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval,"hour").toISOString();
-      b.notified = false;
-      await saveBossDataToSheet();
-      console.log(`${name} 重生時間已更新為 ${b.nextRespawn}，錯過次數：${b.missedCount}`);
+      } catch (err) {
+        console.error(err);
+      }
     }
   }
 });
 
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, async ()=>{
+app.listen(PORT, async () => {
   await loadBossData();
   console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`);
 });
