@@ -20,7 +20,7 @@ const config = {
 };
 const client = new Client(config);
 
-// ===== Google Sheet 設定 =====
+// ===== Google Sheets 設定 =====
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEETS_ID);
 let sheet;
 
@@ -30,17 +30,27 @@ let notifyAll = true;
 
 // ===== Express =====
 const app = express();
+
+// ===== Webhook 處理 =====
 app.post("/webhook", middleware(config), async (req, res) => {
   try {
-    const events = req.body.events;
-    if (!events) return res.sendStatus(200);
-    await Promise.all(events.map(handleEvent));
-    res.sendStatus(200);
+    const events = req.body.events || [];
+    await Promise.all(
+      events.map(async (event) => {
+        try {
+          await handleEvent(event);
+        } catch (e) {
+          console.error("handleEvent error:", e);
+        }
+      })
+    );
+    return res.sendStatus(200); // 確保 LINE 收到 200
   } catch (err) {
-    console.error(err);
-    res.sendStatus(500);
+    console.error("Webhook error:", err);
+    return res.sendStatus(200); // 即使發生錯誤，也回 200
   }
 });
+
 app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 
 // ===== 載入資料 =====
@@ -76,7 +86,7 @@ async function saveBossData() {
   console.log("✅ 已更新 Google Sheet");
 }
 
-// ===== 處理 LINE 指令 =====
+// ===== LINE 指令處理 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
@@ -220,20 +230,14 @@ cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
   const dayName = now.format("ddd").toUpperCase().slice(0, 3); // MON, TUE...
   const targetId = process.env.USER_ID;
-
-  if (!targetId) {
-    console.error("❌ USER_ID 尚未設定");
-    return;
-  }
+  if (!targetId) return;
 
   for (const [name, b] of Object.entries(bossData)) {
     if (!b.nextRespawn || !b.interval) continue;
-
     if (b.notifyDate !== "ALL") {
       const allowedDays = b.notifyDate.split(",");
       if (!allowedDays.includes(dayName)) continue;
     }
-
     const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
 
     if (diff <= 10 && diff > 9 && !b.notified && notifyAll) {
@@ -262,19 +266,21 @@ cron.schedule("* * * * *", async () => {
   }
 });
 
-// ===== 啟動伺服器 =====
+// ===== 初始化並啟動伺服器 =====
 async function init() {
-  // Google Sheets 初始化
-  await doc.useServiceAccountAuth({
-    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  });
-  await doc.loadInfo();
-  sheet = doc.sheetsByTitle["Boss"];
-  await sheet.loadHeaderRow();
-  await loadBossData();
+  try {
+    await doc.useServiceAccountAuth({
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    });
+    await doc.loadInfo();
+    sheet = doc.sheetsByTitle["Boss"];
+    await sheet.loadHeaderRow();
+    await loadBossData();
+  } catch (e) {
+    console.error("Google Sheets 初始化失敗:", e);
+  }
 
-  // 啟動 Express
   const PORT = process.env.PORT || 10000;
   app.listen(PORT, () => console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`));
 }
