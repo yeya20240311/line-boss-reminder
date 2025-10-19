@@ -189,30 +189,31 @@ async function handleEvent(event) {
   }
 
   // /王 顯示
-  if (text === "/王") {
-    const now = dayjs().tz(TW_ZONE);
-    const dayName = now.format("ddd").toUpperCase();
-    const list = Object.keys(bossData)
-      .map(name => {
-        const b = bossData[name];
-        if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
-        const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-        const h = Math.floor(Math.abs(diff)/60);
-        const m = Math.abs(diff) % 60;
-        const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-        const icon = (diff <= 0) ? "⚠️" : "⚔️";
-        const missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
-        return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
-      })
-      .sort((a,b)=>{
-        const aMin = parseInt(a.match(/剩餘 (\d+)小時/)?.[1] || 999);
-        const bMin = parseInt(b.match(/剩餘 (\d+)小時/)?.[1] || 999);
-        return aMin - bMin;
-      })
-      .join("\n");
-    await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
-    return;
-  }
+if (text === "/王") {
+  const now = dayjs().tz(TW_ZONE);
+  const list = Object.keys(bossData)
+    .map(name => {
+      const b = bossData[name];
+      if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
+      const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
+      const h = Math.floor(Math.abs(diff) / 60);
+      const m = Math.abs(diff) % 60;
+      const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
+      const icon = diff <= 0 ? "⚠️" : "⚔️"; // 過期用 ⚠️
+      const missedText = b.missedCount && b.missedCount > 0 ? ` 過${b.missedCount}` : "";
+      return {
+        text: `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`,
+        diff: diff
+      };
+    })
+    .sort((a,b)=>a.diff - b.diff) // 依剩餘時間排序，過期會排前面
+    .map(i => i.text)
+    .join("\n");
+
+  await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
+  return;
+}
+
 
   // /開啟通知
   if (text === "/開啟通知") { notifyAll = true; await client.replyMessage(event.replyToken,{ type:"text", text:"✅ 已開啟所有前10分鐘通知"}); return; }
