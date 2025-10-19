@@ -169,28 +169,42 @@ async function handleEvent(event) {
     return;
   }
 
-  if (text === "/王") {
-    const now = dayjs().tz(TW_ZONE);
-    const list = Object.keys(bossData)
-      .map((name) => {
-        const b = bossData[name];
-        if (!b.nextRespawn) return { name, diff: Infinity, text: `❌ ${name} 尚未設定重生時間` };
-        const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-        const h = Math.floor(diff / 60);
-        const m = diff % 60;
-        const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-        return { name, diff, text: `⚔️ ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）` };
-      })
-      .sort((a, b) => a.diff - b.diff)
-      .map((item) => item.text)
-      .join("\n");
+// /王
+if (text === "/王") {
+  const now = dayjs().tz(TW_ZONE);
+  const list = Object.keys(bossData)
+    .map((name) => {
+      const b = bossData[name];
+      if (!b.nextRespawn || !b.interval) return { name, diff: Infinity, text: `❌ ${name} 尚未設定重生時間` };
 
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: list || "尚無任何王的資料",
-    });
-    return;
-  }
+      const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
+      const h = Math.floor(Math.abs(diff) / 60);
+      const m = Math.abs(diff) % 60;
+
+      // 計算 missed 次數
+      let missedCount = 0;
+      if (diff < 0 && b.interval) {
+        missedCount = Math.ceil(Math.abs(diff) / (b.interval * 60));
+      }
+
+      let textLine = `⚠️ ${name} 剩餘 ${h}小時${m}分（預計 ${dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm")}）`;
+      if (missedCount > 0) {
+        textLine += ` 過${missedCount}`;
+      }
+
+      return { name, diff, text: textLine };
+    })
+    .sort((a, b) => a.diff - b.diff)
+    .map(item => item.text)
+    .join("\n");
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: list || "尚無任何王的資料",
+  });
+  return;
+}
+
 
   if (text === "/開啟通知") {
     notifyAll = true;
