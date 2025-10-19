@@ -195,25 +195,17 @@ if (text === "/王") {
     .map(name => {
       const b = bossData[name];
       if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
-
       const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
       const h = Math.floor(Math.abs(diff)/60);
       const m = Math.abs(diff) % 60;
       const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-
-      let icon = "⚔️";
-      let missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
-
-      if (diff < 0) {
-        // 已過期，只在 /王 顯示
-        icon = "⚠️";
-      }
-
+      const icon = (diff <= 0) ? "⚠️" : "⚔️"; // 過期改成 ⚠️
+      const missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
       return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
     })
     .sort((a,b)=>{
-      const aMin = parseInt(a.match(/剩餘 (\d+)小時/)?.[1] || 999) * 60 + parseInt(a.match(/小時(\d+)分/)?.[1] || 0);
-      const bMin = parseInt(b.match(/剩餘 (\d+)小時/)?.[1] || 999) * 60 + parseInt(b.match(/小時(\d+)分/)?.[1] || 0);
+      const aMin = parseInt(a.match(/剩餘 (\d+)小時/)?.[1] || 999);
+      const bMin = parseInt(b.match(/剩餘 (\d+)小時/)?.[1] || 999);
       return aMin - bMin;
     })
     .join("\n");
