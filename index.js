@@ -188,10 +188,10 @@ async function handleEvent(event) {
     return;
   }
 
-  // /王 顯示 (更新後)
+  // /王 顯示
   if (text === "/王") {
     const now = dayjs().tz(TW_ZONE);
-    const dayName = now.format("ddd").toUpperCase(); // MON, TUE ...
+    const dayName = now.format("ddd").toUpperCase();
     const list = Object.keys(bossData)
       .map(name => {
         const b = bossData[name];
@@ -221,20 +221,19 @@ async function handleEvent(event) {
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
 
-// ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
+// ===== 每分鐘檢查重生提醒 & 錯過次數累積 =====
 cron.schedule("* * * * *", async ()=>{
   const now = dayjs().tz(TW_ZONE);
-  const dayName = now.format("ddd").toUpperCase(); // MON, TUE, ...
+  const dayName = now.format("ddd").toUpperCase();
   const targetId = process.env.USER_ID;
   if(!targetId) return;
 
   for(const [name,b] of Object.entries(bossData)){
     if(!b.nextRespawn || !b.interval) continue;
 
-    // ===== 日期推播限制 =====
     if(b.notifyDate !== "ALL"){
-      const allowedDays = b.notifyDate.split(","); // e.g., ["SAT","MON"]
-      if(!allowedDays.includes(dayName)) continue; // 今天不推播
+      const allowedDays = b.notifyDate.split(",");
+      if(!allowedDays.includes(dayName)) continue;
     }
 
     const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now,"minute");
@@ -250,9 +249,9 @@ cron.schedule("* * * * *", async ()=>{
       }catch(err){ console.error("推播失敗",err); }
     }
 
-    // ===== 自動更新下一次，並累積錯過次數 =====
+    // 自動更新下一次，累積錯過次數
     if(diff <=0){
-      b.missedCount = (b.missedCount || 0) + 1; // 錯過次數累加
+      b.missedCount = (b.missedCount || 0) + 1;
       const nextTime = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval,"hour").toISOString();
       b.nextRespawn = nextTime;
       b.notified = false;
@@ -265,6 +264,7 @@ cron.schedule("* * * * *", async ()=>{
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async ()=>{
-  await loadBossData();
   console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`);
+  // 這裡載入 Google Sheets，Build 時不會先執行
+  await loadBossData();
 });
