@@ -188,9 +188,10 @@ async function handleEvent(event) {
     return;
   }
 
-  // /王 顯示
+  // /王 顯示 (更新後)
   if (text === "/王") {
     const now = dayjs().tz(TW_ZONE);
+    const dayName = now.format("ddd").toUpperCase(); // MON, TUE ...
     const list = Object.keys(bossData)
       .map(name => {
         const b = bossData[name];
@@ -199,8 +200,8 @@ async function handleEvent(event) {
         const h = Math.floor(Math.abs(diff)/60);
         const m = Math.abs(diff) % 60;
         const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-        const icon = b.missedCount && b.missedCount > 0 ? "❗" : "⚔️";
-        const missedText = b.missedCount && b.missedCount > 0 ? ` 過${b.missedCount}` : "";
+        const icon = (b.missedCount && b.missedCount > 0) ? "⚠️" : "⚔️";
+        const missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
         return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
       })
       .sort((a,b)=>{
@@ -220,20 +221,20 @@ async function handleEvent(event) {
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
 
-// ===== 每分鐘檢查重生前10分鐘提醒 =====
+// ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
 cron.schedule("* * * * *", async ()=>{
   const now = dayjs().tz(TW_ZONE);
-  const dayName = now.format("ddd").toUpperCase().slice(0,3); // MON, TUE, ...
+  const dayName = now.format("ddd").toUpperCase(); // MON, TUE, ...
   const targetId = process.env.USER_ID;
   if(!targetId) return;
 
   for(const [name,b] of Object.entries(bossData)){
     if(!b.nextRespawn || !b.interval) continue;
 
-    // 檢查日期設定
+    // ===== 日期推播限制 =====
     if(b.notifyDate !== "ALL"){
-      const allowedDays = b.notifyDate.split(",");
-      if(!allowedDays.includes(dayName)) continue;
+      const allowedDays = b.notifyDate.split(","); // e.g., ["SAT","MON"]
+      if(!allowedDays.includes(dayName)) continue; // 今天不推播
     }
 
     const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now,"minute");
@@ -249,9 +250,9 @@ cron.schedule("* * * * *", async ()=>{
       }catch(err){ console.error("推播失敗",err); }
     }
 
-    // 時間到自動更新下一次
+    // ===== 自動更新下一次，並累積錯過次數 =====
     if(diff <=0){
-      b.missedCount = (b.missedCount||0) +1;
+      b.missedCount = (b.missedCount || 0) + 1; // 錯過次數累加
       const nextTime = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval,"hour").toISOString();
       b.nextRespawn = nextTime;
       b.notified = false;
