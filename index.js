@@ -94,10 +94,7 @@ async function saveBossDataToSheet() {
 // ===== Express =====
 const app = express();
 
-// 只在其他 route 才解析 JSON，LINE webhook 保留原始 middleware
-app.use("/other-json-route", express.json());
-
-// ===== LINE Webhook =====
+// ⚠️ 注意：middleware 在 body-parser 前
 app.post("/webhook", middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -171,7 +168,8 @@ async function handleEvent(event) {
     const raw = parseFloat(remainStr);
     const h = Math.floor(raw);
     const m = Math.round((raw - h) * 100);
-    // 這裡直接重置倒數時間
+
+    // ✅ 修正這裡：直接設置下一次重生時間，不再用舊的累加
     bossData[name].nextRespawn = dayjs().tz(TW_ZONE).add(h, "hour").add(m, "minute").toISOString();
     bossData[name].notified = false;
     bossData[name].missedCount = 0;
@@ -228,9 +226,9 @@ async function handleEvent(event) {
 }
 
 // ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
-cron.schedule("* * * * *", async ()=>{
+cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
-  const dayName = now.format("ddd").toUpperCase();
+  const dayName = now.format("ddd").toUpperCase(); // MON, TUE, ...
   const targetId = process.env.USER_ID;
   if(!targetId) return;
 
@@ -239,8 +237,8 @@ cron.schedule("* * * * *", async ()=>{
 
     // 日期推播限制
     if(b.notifyDate !== "ALL"){
-      const allowedDays = b.notifyDate.split(",");
-      if(!allowedDays.includes(dayName)) continue;
+      const allowedDays = b.notifyDate.split(","); // e.g., ["SAT","MON"]
+      if(!allowedDays.includes(dayName)) continue; // 今天不推播
     }
 
     const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now,"minute");
@@ -256,10 +254,11 @@ cron.schedule("* * * * *", async ()=>{
       }catch(err){ console.error("推播失敗",err); }
     }
 
-    // 到時間自動累加錯過次數 & 設定下一次重生
+    // 自動更新下一次，並累積錯過次數
     if(diff <= 0){
-      b.missedCount = (b.missedCount || 0) + 1;
-      const nextTime = dayjs().tz(TW_ZONE).add(b.interval,"hour").toISOString(); // 重新倒數
+      b.missedCount = (b.missedCount || 0) + 1; // 錯過次數累加
+      // ✅ 修正：基於原 nextRespawn 加間隔
+      const nextTime = dayjs(b.nextRespawn).tz(TW_ZONE).add(b.interval,"hour").toISOString();
       b.nextRespawn = nextTime;
       b.notified = false;
       await saveBossDataToSheet();
