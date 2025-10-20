@@ -255,13 +255,24 @@ cron.schedule("* * * * *", async ()=>{
 
     // 前10分鐘通知
     if(diff > 0 && diff <= 10 && !b.notified){
-      b.notified = true;
-      updated = true;
-      await client.pushMessage(targetId,{
-        type:"text",
-        text:`⏰ ${name} 即將在 ${diff} 分鐘後重生`
-      });
-    }
+
+  // 1️⃣ 取得今天星期
+  const today = now.format("ddd").toUpperCase(); // "MON","TUE",...
+
+  // 2️⃣ 拆分通知日期設定
+  const notifyDays = b.notifyDate.split(","); // ["SAT","MON"]
+
+  // 3️⃣ 判斷今天是否要通知
+  if(b.notifyDate !== "ALL" && !notifyDays.includes(today)) return;
+
+  // 4️⃣ 發送通知
+  b.notified = true;
+  await client.pushMessage(targetId,{
+    type:"text",
+    text:`⏰ ${name} 即將在 ${diff} 分鐘後重生`
+  });
+}
+
 
     // 如果重生時間已更新，重置 missedCountHandled
     if(diff > 0){
