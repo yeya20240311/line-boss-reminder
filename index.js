@@ -282,6 +282,12 @@ cron.schedule("* * * * *", async ()=>{
 
   if(updated) await saveBossDataToSheet();
 });
+
+// 🕐 每分鐘印出一條心跳訊息（確認伺服器在跑）
+setInterval(() => {
+  console.log("🕐 定時器仍在運作中", new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
+}, 60000);
+
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async ()=>{
