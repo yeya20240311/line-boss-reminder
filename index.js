@@ -203,11 +203,15 @@ if (text === "/王") {
       const missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
       return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
     })
-    .sort((a,b)=>{
-      const aMin = parseInt(a.match(/剩餘 (\d+)小時/)?.[1] || 999);
-      const bMin = parseInt(b.match(/剩餘 (\d+)小時/)?.[1] || 999);
-      return aMin - bMin;
-    })
+   .sort((a,b)=>{
+  const aMatch = a.match(/剩餘 (\d+)小時(\d+)分/);
+  const bMatch = b.match(/剩餘 (\d+)小時(\d+)分/);
+
+  const aMin = aMatch ? parseInt(aMatch[1]) * 60 + parseInt(aMatch[2]) : 9999;
+  const bMin = bMatch ? parseInt(bMatch[1]) * 60 + parseInt(bMatch[2]) : 9999;
+
+  return aMin - bMin;
+})
     .join("\n");
 
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
