@@ -130,12 +130,26 @@ async function handleEvent(event) {
   }
 
   // /我的ID
-  if (text === "/我的ID") {
-    const id = event.source.userId || "無法取得";
-    await client.replyMessage(event.replyToken, { type: "text", text: `你的 ID：${id}` });
-    return;
+if (text === "/我的ID") {
+  let idText = "";
+
+  if (event.source.type === "group") {
+    const groupId = event.source.groupId;
+    idText = `這是群組 ID：${groupId}`;
+  } else if (event.source.type === "room") {
+    const roomId = event.source.roomId;
+    idText = `這是多人聊天 ID：${roomId}`;
+  } else {
+    const userId = event.source.userId || "無法取得";
+    idText = `這是你的個人 ID：${userId}`;
   }
 
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: idText,
+  });
+  return;
+}
   // /設定 王名 間隔
   if (args[0] === "/設定" && args.length === 3) {
     const [_, name, intervalStr] = args;
