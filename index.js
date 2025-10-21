@@ -276,39 +276,43 @@ cron.schedule("* * * * *", async ()=>{
       // ⚠️ 已過期的通知不推播，僅更新 /王 顯示
     }
 
-    // 前10分鐘通知
-    if(diff > 0 && diff <= 10 && !b.notified){
-        // ✅ 先判斷是否真的需要發送
+// 前10分鐘通知
+bossList.forEach(async (b) => {
+  const diff = dayjs(b.respawnTime).diff(now, "minute");
 
-      if (!notifyAll) continue;
+  // 只有還沒通知且在10分鐘內的才處理
+  if(diff > 0 && diff <= 10 && !b.notified){
+    // ✅ 先判斷是否真的需要發送
+    if (!notifyAll) return;
 
-  // 1️⃣ 取得今天星期
-  const today = now.format("ddd").toUpperCase(); // "MON","TUE",...
+    // 1️⃣ 取得今天星期
+    const today = now.format("ddd").toUpperCase(); // "MON","TUE",...
 
-  // 2️⃣ 拆分通知日期設定
-  const notifyDays = b.notifyDate.split(","); // ["SAT","MON"]
+    // 2️⃣ 拆分通知日期設定
+    const notifyDays = b.notifyDate.split(","); // ["SAT","MON"]
 
-  // 3️⃣ 判斷今天是否要通知
-  if(notifyAll && (b.notifyDate === "ALL" || notifyDays.includes(today))){
-    // 只有真的要通知才呼叫 pushMessage
-    
-  // 4️⃣ 發送通知
-  b.notified = true;
-  await client.pushMessage(targetId,{
-    type:"text",
-    text:`⏰ ${name} 即將在 ${diff} 分鐘後重生`
-  });
-}
-
-
-    // 如果重生時間已更新，重置 missedCountHandled
-    if(diff > 0){
-      b.missedCountHandled = false;
+    // 3️⃣ 判斷今天是否要通知
+    if(b.notifyDate === "ALL" || notifyDays.includes(today)){
+      // 4️⃣ 發送通知
+      try {
+        await client.pushMessage(targetId, {
+          type: "text",
+          text: `⏰ ${b.name} 即將在 ${diff} 分鐘後重生`
+        });
+        b.notified = true;
+      } catch (err) {
+        console.error("通知發送失敗:", err);
+      }
     }
   }
 
-  if(updated) await saveBossDataToSheet();
+  // 如果重生時間已更新，重置 missedCountHandled
+  if(diff > 0){
+    b.missedCountHandled = false;
+  }
 });
+
+if(updated) await saveBossDataToSheet();
 
 // 🕐 每分鐘印出一條心跳訊息（確認伺服器在跑）
 setInterval(() => {
@@ -317,7 +321,7 @@ setInterval(() => {
 
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, async ()=>{
+app.listen(PORT, async () => {
   await loadBossData();
   console.log(`🚀 LINE Boss Reminder Bot 已啟動，Port: ${PORT}`);
 });
