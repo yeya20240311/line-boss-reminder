@@ -245,19 +245,19 @@ if (text === "/王") {
 }
 
 // ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
-cron.schedule("* * * * *", async ()=>{
+cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
   const targetId = process.env.GROUP_ID;
-  if(!targetId) return;
+  if (!targetId) return;
 
   let updated = false;
 
-  for(const [name, b] of Object.entries(bossData)){
-    if(!b.nextRespawn) continue;
+  for (const [name, b] of Object.entries(bossData)) {
+    if (!b.nextRespawn) continue;
     const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
-    const diff = resp.diff(now,"minute");
+    const diff = resp.diff(now, "minute");
 
-        // 🔍 除錯：印出每個王的狀態
+    // 🔍 除錯：印出每個王的狀態
     console.log(name, diff, resp.format(), now.format());
 
     // 🛡 防止伺服器延遲：超過 3 分鐘才當作過期
@@ -267,56 +267,49 @@ cron.schedule("* * * * *", async ()=>{
     }
 
     // 過期只累計錯過，不通知
-    if(diff <= 0 && !b.missedCountHandled){
+    if (diff <= 0 && !b.missedCountHandled) {
       b.missedCount = (b.missedCount || 0) + 1;
-      b.nextRespawn = resp.add(b.interval,"hour").toISOString();
+      b.nextRespawn = resp.add(b.interval, "hour").toISOString();
       b.notified = false;
-      b.missedCountHandled = true; // 確保同一個過期事件只累計一次
+      b.missedCountHandled = true;
       updated = true;
-      // ⚠️ 已過期的通知不推播，僅更新 /王 顯示
     }
 
-// 前10分鐘通知
-bossList.forEach(async (b) => {
-  const diff = dayjs(b.respawnTime).diff(now, "minute");
+    // 前10分鐘通知
+    if (diff > 0 && diff <= 10 && !b.notified) {
+      if (!notifyAll) continue;
 
-  // 只有還沒通知且在10分鐘內的才處理
-  if(diff > 0 && diff <= 10 && !b.notified){
-    // ✅ 先判斷是否真的需要發送
-    if (!notifyAll) return;
+      const today = now.format("ddd").toUpperCase();
+      const notifyDays = b.notifyDate.split(",");
 
-    // 1️⃣ 取得今天星期
-    const today = now.format("ddd").toUpperCase(); // "MON","TUE",...
-
-    // 2️⃣ 拆分通知日期設定
-    const notifyDays = b.notifyDate.split(","); // ["SAT","MON"]
-
-    // 3️⃣ 判斷今天是否要通知
-    if(b.notifyDate === "ALL" || notifyDays.includes(today)){
-      // 4️⃣ 發送通知
-      try {
-        await client.pushMessage(targetId, {
-          type: "text",
-          text: `⏰ ${b.name} 即將在 ${diff} 分鐘後重生`
-        });
-        b.notified = true;
-      } catch (err) {
-        console.error("通知發送失敗:", err);
+      if (b.notifyDate === "ALL" || notifyDays.includes(today)) {
+        try {
+          await client.pushMessage(targetId, {
+            type: "text",
+            text: `⏰ ${name} 即將在 ${diff} 分鐘後重生`,
+          });
+          b.notified = true;
+        } catch (err) {
+          console.error("通知發送失敗:", err);
+        }
       }
     }
+
+    // 如果重生時間已更新，重置 missedCountHandled
+    if (diff > 0) {
+      b.missedCountHandled = false;
+    }
   }
 
-  // 如果重生時間已更新，重置 missedCountHandled
-  if(diff > 0){
-    b.missedCountHandled = false;
-  }
+  if (updated) await saveBossDataToSheet();
 });
 
-if(updated) await saveBossDataToSheet();
-
-// 🕐 每分鐘印出一條心跳訊息（確認伺服器在跑）
+// 🕐 每分鐘印出心跳訊息
 setInterval(() => {
-  console.log("🕐 定時器仍在運作中", new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
+  console.log(
+    "🕐 定時器仍在運作中",
+    new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })
+  );
 }, 60000);
 
 // ===== 啟動 =====
