@@ -243,6 +243,15 @@ cron.schedule("* * * * *", async ()=>{
     const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
     const diff = resp.diff(now,"minute");
 
+        // 🔍 除錯：印出每個王的狀態
+    console.log(name, diff, resp.format(), now.format());
+
+    // 🛡 防止伺服器延遲：超過 3 分鐘才當作過期
+    if (diff < -3 && !b.missedCountHandled) {
+      b.missedCountHandled = true;
+      continue;
+    }
+
     // 過期只累計錯過，不通知
     if(diff <= 0 && !b.missedCountHandled){
       b.missedCount = (b.missedCount || 0) + 1;
@@ -256,6 +265,8 @@ cron.schedule("* * * * *", async ()=>{
     // 前10分鐘通知
     if(diff > 0 && diff <= 10 && !b.notified){
 
+      if (!notifyAll) continue;
+
   // 1️⃣ 取得今天星期
   const today = now.format("ddd").toUpperCase(); // "MON","TUE",...
 
@@ -263,7 +274,7 @@ cron.schedule("* * * * *", async ()=>{
   const notifyDays = b.notifyDate.split(","); // ["SAT","MON"]
 
   // 3️⃣ 判斷今天是否要通知
-  if(b.notifyDate !== "ALL" && !notifyDays.includes(today)) return;
+  if(b.notifyDate !== "ALL" && !notifyDays.includes(today)) continue;
 
   // 4️⃣ 發送通知
   b.notified = true;
