@@ -278,6 +278,7 @@ cron.schedule("* * * * *", async ()=>{
 
     // 前10分鐘通知
     if(diff > 0 && diff <= 10 && !b.notified){
+        // ✅ 先判斷是否真的需要發送
 
       if (!notifyAll) continue;
 
@@ -288,8 +289,9 @@ cron.schedule("* * * * *", async ()=>{
   const notifyDays = b.notifyDate.split(","); // ["SAT","MON"]
 
   // 3️⃣ 判斷今天是否要通知
-  if(b.notifyDate !== "ALL" && !notifyDays.includes(today)) continue;
-
+  if(notifyAll && (b.notifyDate === "ALL" || notifyDays.includes(today))){
+    // 只有真的要通知才呼叫 pushMessage
+    
   // 4️⃣ 發送通知
   b.notified = true;
   await client.pushMessage(targetId,{
