@@ -247,7 +247,7 @@ if (text === "/王") {
 // ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
 cron.schedule("* * * * *", async ()=>{
   const now = dayjs().tz(TW_ZONE);
-  const targetId = process.env.USER_ID;
+  const targetId = process.env.GROUP_ID;
   if(!targetId) return;
 
   let updated = false;
