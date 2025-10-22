@@ -393,14 +393,26 @@ cron.schedule("* * * * *", async () => {
     const messageText = notifyList
       .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
       .join("\n");
-    try {
-      await client.pushMessage(targetId, { type: "text", text: messageText });
-    } catch (err) {
-      console.error("通知發送失敗:", err);
-      // 如果失敗，可選擇把 b.notified 重設為 false 讓下一次嘗試
-      notifyList.forEach(b => {
-        if (bossData[b.name]) bossData[b.name].notified = false;
-      });
+
+    // 重試機制
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await client.pushMessage(targetId, { type: "text", text: messageText });
+        console.log("✅ 通知發送成功");
+        break; // 成功就跳出重試
+      } catch (err) {
+        console.error(`⚠️ 通知發送失敗 (第 ${attempt} 次):`, err.statusCode, err.statusMessage);
+        if (attempt < maxRetries) {
+          await new Promise(res => setTimeout(res, 3000)); // 等 3 秒再重試
+        } else {
+          console.error("❌ 已達最大重試次數，通知發送失敗");
+          // 將已標記通知的王重置
+          notifyList.forEach(b => {
+            if (bossData[b.name]) bossData[b.name].notified = false;
+          });
+        }
+      }
     }
   }
 
