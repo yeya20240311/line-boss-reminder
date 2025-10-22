@@ -344,8 +344,8 @@ if (text === "/王") {
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
 
-// ===== 每 3 分鐘檢查通知 =====
-cron.schedule("*/3 * * * *", async () => {
+// ===== 每 10 分鐘檢查通知 =====
+cron.schedule("*/10 * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
   const targetId = process.env.GROUP_ID;
   if (!targetId) return;
