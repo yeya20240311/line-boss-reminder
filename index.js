@@ -344,29 +344,27 @@ if (text === "/王") {
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
 
-// ===== 每分鐘檢查重生前10分鐘提醒 & 自動累計錯過次數 =====
 cron.schedule("* * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
   const targetId = process.env.GROUP_ID;
   if (!targetId) return;
 
   let updated = false;
+  let notifyList = []; // 儲存本分鐘要通知的王
 
   for (const [name, b] of Object.entries(bossData)) {
     if (!b.nextRespawn) continue;
     const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
     const diff = resp.diff(now, "minute");
 
-    // 🔍 除錯：印出每個王的狀態
+    // 🔍 除錯
     console.log(name, diff, resp.format(), now.format());
 
-    // 🛡 防止伺服器延遲：超過 3 分鐘才當作過期
+    // 過期只累計錯過
     if (diff < -3 && !b.missedCountHandled) {
       b.missedCountHandled = true;
       continue;
     }
-
-    // 過期只累計錯過，不通知
     if (diff <= 0 && !b.missedCountHandled) {
       b.missedCount = (b.missedCount || 0) + 1;
       b.nextRespawn = resp.add(b.interval, "hour").toISOString();
@@ -375,34 +373,41 @@ cron.schedule("* * * * *", async () => {
       updated = true;
     }
 
-    // 前10分鐘通知
-    if (diff > 0 && diff <= 10 && !b.notified) {
-      if (!notifyAll) continue;
-
+    // 前10分鐘通知 → 收集在 notifyList
+    if (diff > 0 && diff <= 10 && !b.notified && notifyAll) {
       const today = now.format("ddd").toUpperCase();
       const notifyDays = b.notifyDate.split(",");
-
       if (b.notifyDate === "ALL" || notifyDays.includes(today)) {
-        try {
-          await client.pushMessage(targetId, {
-            type: "text",
-            text: `⏰ ${name} 即將在 ${diff} 分鐘後重生`,
-          });
-          b.notified = true;
-        } catch (err) {
-          console.error("通知發送失敗:", err);
-        }
+        notifyList.push({ name, diff });
+        b.notified = true; // 記錄已通知，避免下次重複
       }
     }
 
-    // 如果重生時間已更新，重置 missedCountHandled
     if (diff > 0) {
       b.missedCountHandled = false;
     }
   }
 
+  // 如果有要通知的王，一次推送整合訊息
+  if (notifyList.length > 0) {
+    const messageText = notifyList
+      .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
+      .join("\n");
+    try {
+      await client.pushMessage(targetId, { type: "text", text: messageText });
+    } catch (err) {
+      console.error("通知發送失敗:", err);
+      // 如果失敗，可選擇把 b.notified 重設為 false 讓下一次嘗試
+      notifyList.forEach(b => {
+        if (bossData[b.name]) bossData[b.name].notified = false;
+      });
+    }
+  }
+
   if (updated) await saveBossDataToSheet();
 });
+
+
 
 // 🕐 每分鐘印出心跳訊息
 setInterval(() => {
