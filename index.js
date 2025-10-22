@@ -202,6 +202,104 @@ if (text === "/我的ID") {
     return;
   }
 
+// /通知 類別 參數
+if (args[0] === "/通知" && args.length === 3) {
+  const [_, category, notifyStr] = args;
+
+  // 定義分類
+  const ICE_BOSSES = ["冰1", "冰2北", "冰2南"];
+  const OTHERS = [
+    "激3", "奇3北", "奇1北", "激2", "奇3南",
+    "奇2西", "奇2東", "奇1南"
+  ];
+
+  let targets = [];
+  if (category === "冰") {
+    targets = ICE_BOSSES;
+  } else if (category === "奇") {
+    targets = OTHERS;
+  } else {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `❌ 未知的分類：${category}\n可用類別：冰、奇`
+    });
+    return;
+  }
+
+  // 通知設定轉換
+  let notifyDate = "ALL";
+  if (notifyStr === "0") {
+    notifyDate = "NONE";
+  } else if (notifyStr === "9") {
+    notifyDate = "ALL";
+  } else {
+    const dayMap = {
+      "1": "MON",
+      "2": "TUE",
+      "3": "WED",
+      "4": "THU",
+      "5": "FRI",
+      "6": "SAT",
+      "7": "SUN",
+    };
+    const days = notifyStr
+      .split(".")
+      .map(d => dayMap[d])
+      .filter(Boolean);
+    notifyDate = days.length > 0 ? days.join(",") : "ALL";
+  }
+
+  // 套用到各王
+  let updated = [];
+  for (const name of targets) {
+    if (!bossData[name]) continue;
+    bossData[name].notifyDate = notifyDate;
+    updated.push(name);
+  }
+
+  await saveBossDataToSheet();
+
+  const weekdayNames = {
+    MON: "一", TUE: "二", WED: "三",
+    THU: "四", FRI: "五", SAT: "六", SUN: "日"
+  };
+  let readable = notifyDate === "ALL"
+    ? "每天"
+    : notifyDate === "NONE"
+      ? "已關閉"
+      : notifyDate.split(",").map(d => `星期${weekdayNames[d]}`).join("、");
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: `✅ 已更新 ${category} 類通知\n📅 通知日：${readable}\n🧊 影響王：${updated.join("、")}`
+  });
+  return;
+}
+
+// /資訊 顯示
+if (text === "/資訊") {
+  const list = Object.keys(bossData)
+    .map(name => {
+      const b = bossData[name];
+      const interval = b.interval ? `${Math.floor(b.interval)}小時${Math.round((b.interval % 1) * 60)}分` : "未設定";
+      let notify = "每天";
+      if (b.notifyDate === "NONE") notify = "已關閉";
+      else if (b.notifyDate !== "ALL") {
+        const map = { MON:"一",TUE:"二",WED:"三",THU:"四",FRI:"五",SAT:"六",SUN:"日" };
+        notify = b.notifyDate.split(",").map(d => `星期${map[d]}`).join("、");
+      }
+      return `🔹 ${name}\n　間隔：${interval}\n　通知：${notify}`;
+    })
+    .join("\n\n");
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: list || "目前尚無任何王的資訊"
+  });
+  return;
+}
+
+  
 // /王 顯示
 if (text === "/王") {
   const now = dayjs().tz(TW_ZONE);
