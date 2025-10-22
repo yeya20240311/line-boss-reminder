@@ -344,23 +344,25 @@ if (text === "/王") {
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
 
-cron.schedule("* * * * *", async () => {
+// ===== 每3分鐘檢查通知 =====
+cron.schedule("*/3 * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
   const targetId = process.env.GROUP_ID;
   if (!targetId) return;
 
   let updated = false;
-  let notifyList = []; // 儲存本分鐘要通知的王
+  let notifyList = []; // 本輪要通知的王
+  let alreadySent = false; // 發送鎖
 
   for (const [name, b] of Object.entries(bossData)) {
     if (!b.nextRespawn) continue;
     const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
     const diff = resp.diff(now, "minute");
 
-    // 🔍 除錯
+    // LOGS
     console.log(name, diff, resp.format(), now.format());
 
-    // 過期只累計錯過
+    // 過期處理
     if (diff < -3 && !b.missedCountHandled) {
       b.missedCountHandled = true;
       continue;
@@ -373,51 +375,41 @@ cron.schedule("* * * * *", async () => {
       updated = true;
     }
 
-    // 前10分鐘通知 → 收集在 notifyList
+    // 前10分鐘通知
     if (diff > 0 && diff <= 10 && !b.notified && notifyAll) {
       const today = now.format("ddd").toUpperCase();
       const notifyDays = b.notifyDate.split(",");
       if (b.notifyDate === "ALL" || notifyDays.includes(today)) {
         notifyList.push({ name, diff });
-        b.notified = true; // 記錄已通知，避免下次重複
       }
     }
 
-    if (diff > 0) {
-      b.missedCountHandled = false;
-    }
+    if (diff > 0) b.missedCountHandled = false;
   }
 
-  // 如果有要通知的王，一次推送整合訊息
-  if (notifyList.length > 0) {
+  // 發送通知（整合一次發送）
+  if (notifyList.length > 0 && !alreadySent) {
     const messageText = notifyList
       .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
       .join("\n");
 
-    // 重試機制
-    const maxRetries = 3;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await client.pushMessage(targetId, { type: "text", text: messageText });
-        console.log("✅ 通知發送成功");
-        break; // 成功就跳出重試
-      } catch (err) {
-        console.error(`⚠️ 通知發送失敗 (第 ${attempt} 次):`, err.statusCode, err.statusMessage);
-        if (attempt < maxRetries) {
-          await new Promise(res => setTimeout(res, 3000)); // 等 3 秒再重試
-        } else {
-          console.error("❌ 已達最大重試次數，通知發送失敗");
-          // 將已標記通知的王重置
-          notifyList.forEach(b => {
-            if (bossData[b.name]) bossData[b.name].notified = false;
-          });
-        }
-      }
+    try {
+      await client.pushMessage(targetId, { type: "text", text: messageText });
+      console.log("✅ 通知發送成功");
+      alreadySent = true;
+      // 標記已通知
+      notifyList.forEach(b => {
+        if (bossData[b.name]) bossData[b.name].notified = true;
+      });
+    } catch (err) {
+      console.error("⚠️ 通知發送失敗:", err.statusCode, err.statusMessage);
+      // 發送失敗不標記，下一輪仍會重試
     }
   }
 
   if (updated) await saveBossDataToSheet();
 });
+
 
 
 
