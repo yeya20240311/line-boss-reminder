@@ -305,6 +305,7 @@ if (text === "/資訊") {
 }
 
   
+// /王 顯示並自動累加錯過計數
 if (text === "/王") {
   const now = dayjs().tz(TW_ZONE);
   let updated = false; // 是否需要存回 Sheet
@@ -333,6 +334,9 @@ if (text === "/王") {
         // 自動累加錯過計數
         b.missedCount = (b.missedCount || 0) + cyclesPassed;
 
+        // 重置通知
+        b.notified = false;
+
         updated = true;
       }
 
@@ -353,6 +357,7 @@ if (text === "/王") {
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
 }
+
 
 
   // /開啟通知
