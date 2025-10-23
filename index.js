@@ -371,7 +371,6 @@ if (text === "/王") {
 console.log("🕐 定時器啟動於 PID:", process.pid);
 
 // ===== 每 10 分鐘檢查通知 =====
-// 增加防重送機制：每分鐘最多發送一次
 let lastSentTime = 0; // UNIX timestamp（毫秒）
 
 cron.schedule("*/10 * * * *", async () => {
@@ -379,40 +378,51 @@ cron.schedule("*/10 * * * *", async () => {
   const targetId = process.env.GROUP_ID;
   if (!targetId) return;
 
-  // 檢查距離上次發送是否超過 1 分鐘
+  // 防止短時間重複發送
   if (Date.now() - lastSentTime < 60 * 1000) {
     console.log("⏳ 距離上次發送不足 1 分鐘，跳過本次通知");
     return;
   }
 
-  let updated = false;
-  let notifyList = []; // 本次要通知的王
+  let updated = false;  // 是否需要寫回 Google Sheets
+  let notifyList = [];  // 本次要通知的王
 
-for (const [name, b] of Object.entries(bossData)) {
-  if (!b.nextRespawn || !b.interval) continue;
-  const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
-  const diffMin = resp.diff(now, "minute");
+  for (const [name, b] of Object.entries(bossData)) {
+    if (!b.nextRespawn || !b.interval) continue;
 
-  // ===== 自動推進過期週期 =====
-  const hoursSinceRespawn = now.diff(resp, "hour", true); // 可為負
-  let cyclesPassed = 0;
-  if (hoursSinceRespawn >= b.interval) {
-    cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
-    b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
-    b.notified = false; // 重置通知
-    b.missedCount = (b.missedCount || 0) + cyclesPassed; // 更新過期次數
-    updated = true;
-  }
-    // 前 10 分鐘通知 → 收集在 notifyList
-    if (diff > 0 && diff <= 10 && !b.notified && notifyAll) {
-      const today = now.format("ddd").toUpperCase();
+    const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
+    const diffMin = resp.diff(now, "minute");
+
+    // ===== 自動推進過期週期並更新 missedCount =====
+    const hoursSinceRespawn = now.diff(resp, "hour", true);
+    if (hoursSinceRespawn >= b.interval) {
+      const cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
+
+      // 推進下次重生時間
+      b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
+
+      // 累加錯過次數
+      b.missedCount = (b.missedCount || 0) + cyclesPassed;
+
+      // 重置通知狀態
+      b.notified = false;
+
+      updated = true;
+
+      console.log(`⚠️ ${name} 已過 ${cyclesPassed} 輪，missedCount += ${cyclesPassed}`);
+    }
+
+    // ===== 前 10 分鐘通知 =====
+    if (diffMin > 0 && diffMin <= 10 && !b.notified && notifyAll) {
+      const today = now.format("ddd").toUpperCase(); // e.g., "MON"
       const notifyDays = b.notifyDate.split(",");
       if (b.notifyDate === "ALL" || notifyDays.includes(today)) {
-        notifyList.push({ name, diff });
+        notifyList.push({ name, diff: diffMin });
       }
     }
   }
 
+  // 發送通知
   if (notifyList.length > 0) {
     const messageText = notifyList
       .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
@@ -425,7 +435,7 @@ for (const [name, b] of Object.entries(bossData)) {
         await client.pushMessage(targetId, { type: "text", text: messageText });
         console.log("✅ 通知發送成功");
         sent = true;
-        lastSentTime = Date.now(); // 成功送出，更新上次發送時間
+        lastSentTime = Date.now(); // 更新最後發送時間
         break;
       } catch (err) {
         console.error(`⚠️ 通知發送失敗 (第 ${attempt} 次):`, err.statusCode, err.statusMessage);
@@ -433,7 +443,7 @@ for (const [name, b] of Object.entries(bossData)) {
       }
     }
 
-    // 成功送出後才標記已通知，避免重複發送
+    // 標記已通知
     if (sent) {
       notifyList.forEach(b => {
         if (bossData[b.name]) bossData[b.name].notified = true;
@@ -442,11 +452,14 @@ for (const [name, b] of Object.entries(bossData)) {
     }
   }
 
+  // 如果有更新，寫回 Google Sheets
   if (updated) await saveBossDataToSheet();
-
+  
 // 💓 心跳訊息，只印出時間
   console.log("🕐 定時器仍在運作中", now.format("YYYY/MM/DD HH:mm:ss"));
 });
+
+
 
 
 // ===== 啟動 =====
