@@ -357,32 +357,27 @@ if (text === "/王") {
 console.log("🚀 LINE Boss Bot 啟動中，Process PID:", process.pid);
 
 // ===== 每 10 分鐘檢查通知 =====
+// 增加防重送機制：每分鐘最多發送一次
+let lastSentTime = 0; // UNIX timestamp（毫秒）
+
 cron.schedule("*/10 * * * *", async () => {
   const now = dayjs().tz(TW_ZONE);
   const targetId = process.env.GROUP_ID;
   if (!targetId) return;
 
+  // 檢查距離上次發送是否超過 1 分鐘
+  if (Date.now() - lastSentTime < 60 * 1000) {
+    console.log("⏳ 距離上次發送不足 1 分鐘，跳過本次通知");
+    return;
+  }
+
   let updated = false;
-  let notifyList = []; // 儲存本次要通知的王
+  let notifyList = []; // 本次要通知的王
 
   for (const [name, b] of Object.entries(bossData)) {
     if (!b.nextRespawn) continue;
     const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
     const diff = resp.diff(now, "minute");
-
-    // 過期累計錯過
-    if (diff < -3 && !b.missedCountHandled) {
-      b.missedCountHandled = true;
-      continue;
-    }
-
-    if (diff <= 0 && !b.missedCountHandled) {
-      b.missedCount = (b.missedCount || 0) + 1;
-      b.nextRespawn = resp.add(b.interval, "hour").toISOString();
-      b.notified = false;
-      b.missedCountHandled = true;
-      updated = true;
-    }
 
     // 前 10 分鐘通知 → 收集在 notifyList
     if (diff > 0 && diff <= 10 && !b.notified && notifyAll) {
@@ -390,45 +385,45 @@ cron.schedule("*/10 * * * *", async () => {
       const notifyDays = b.notifyDate.split(",");
       if (b.notifyDate === "ALL" || notifyDays.includes(today)) {
         notifyList.push({ name, diff });
-        b.notified = true; // 記錄已通知，避免重複
       }
-    }
-
-    if (diff > 0) {
-      b.missedCountHandled = false;
     }
   }
 
-  // 發送通知
   if (notifyList.length > 0) {
     const messageText = notifyList
       .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
       .join("\n");
 
     const maxRetries = 3;
+    let sent = false;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         await client.pushMessage(targetId, { type: "text", text: messageText });
         console.log("✅ 通知發送成功");
+        sent = true;
+        lastSentTime = Date.now(); // 成功送出，更新上次發送時間
         break;
       } catch (err) {
         console.error(`⚠️ 通知發送失敗 (第 ${attempt} 次):`, err.statusCode, err.statusMessage);
         if (attempt < maxRetries) await new Promise(res => setTimeout(res, 3000));
-        else {
-          console.error("❌ 已達最大重試次數，通知發送失敗");
-          notifyList.forEach(b => {
-            if (bossData[b.name]) bossData[b.name].notified = false;
-          });
-        }
       }
+    }
+
+    // 成功送出後才標記已通知，避免重複發送
+    if (sent) {
+      notifyList.forEach(b => {
+        if (bossData[b.name]) bossData[b.name].notified = true;
+      });
+      updated = true;
     }
   }
 
   if (updated) await saveBossDataToSheet();
 
-  // 💓 心跳訊息，只印出時間
+// 💓 心跳訊息，只印出時間
   console.log("🕐 定時器仍在運作中", now.format("YYYY/MM/DD HH:mm:ss"));
 });
+
 
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
