@@ -305,31 +305,38 @@ if (text === "/資訊") {
 }
 
   
-// /王 顯示
 if (text === "/王") {
   const now = dayjs().tz(TW_ZONE);
+  let updated = false; // 是否需要存回 Sheet
+
   const list = Object.keys(bossData)
     .map(name => {
       const b = bossData[name];
       if (!b.nextRespawn || !b.interval) return `❌ ${name} 尚未設定重生時間`;
 
-      const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
+      let resp = dayjs(b.nextRespawn).tz(TW_ZONE);
       const diffMin = resp.diff(now, "minute");
-      const diffHour = diffMin / 60;
       const h = Math.floor(Math.abs(diffMin) / 60);
       const m = Math.abs(diffMin) % 60;
       const respTime = resp.format("HH:mm");
-      
 
-      // 🔹 準確計算已經過幾輪
+      // 🔹 計算已過輪數
       const hoursSinceRespawn = now.diff(resp, "hour", true);
-let cycleText = "";
-if (hoursSinceRespawn >= b.interval) {
-  const cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
-  cycleText = `過${cyclesPassed}`;
-}
-const icon = (diffMin <= 0 || cycleText) ? "⚠️" : "⚔️";
+      let cycleText = "";
+      if (hoursSinceRespawn >= b.interval) {
+        const cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
+        cycleText = `過${cyclesPassed}`;
 
+        // 自動推進下一輪時間
+        b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
+
+        // 自動累加錯過計數
+        b.missedCount = (b.missedCount || 0) + cyclesPassed;
+
+        updated = true;
+      }
+
+      const icon = (diffMin <= 0 || cycleText) ? "⚠️" : "⚔️";
       return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${cycleText ? " " + cycleText : ""}`;
     })
     .sort((a, b) => {
@@ -340,6 +347,8 @@ const icon = (diffMin <= 0 || cycleText) ? "⚠️" : "⚔️";
       return aMin - bMin;
     })
     .join("\n");
+
+  if (updated) await saveBossDataToSheet(); // 更新 Google Sheets
 
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
