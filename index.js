@@ -319,17 +319,17 @@ if (text === "/王") {
       const h = Math.floor(Math.abs(diffMin) / 60);
       const m = Math.abs(diffMin) % 60;
       const respTime = resp.format("HH:mm");
+      
 
       // 🔹 準確計算已經過幾輪
-      const hoursSinceRespawn = now.diff(resp, "hour", true); // 可為負
-      let cycleText = "";
-      if (hoursSinceRespawn >= b.interval * 2) {
-        cycleText = "過2";
-      } else if (hoursSinceRespawn >= b.interval) {
-        cycleText = "過1";
-      }
+      const hoursSinceRespawn = now.diff(resp, "hour", true);
+let cycleText = "";
+if (hoursSinceRespawn >= b.interval) {
+  const cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
+  cycleText = `過${cyclesPassed}`;
+}
+const icon = (diffMin <= 0 || cycleText) ? "⚠️" : "⚔️";
 
-      const icon = (diffMin <= 0 || cycleText) ? "⚠️" : "⚔️";
       return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${cycleText ? " " + cycleText : ""}`;
     })
     .sort((a, b) => {
@@ -374,11 +374,21 @@ cron.schedule("*/10 * * * *", async () => {
   let updated = false;
   let notifyList = []; // 本次要通知的王
 
-  for (const [name, b] of Object.entries(bossData)) {
-    if (!b.nextRespawn) continue;
-    const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
-    const diff = resp.diff(now, "minute");
+for (const [name, b] of Object.entries(bossData)) {
+  if (!b.nextRespawn || !b.interval) continue;
+  const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
+  const diffMin = resp.diff(now, "minute");
 
+  // ===== 自動推進過期週期 =====
+  const hoursSinceRespawn = now.diff(resp, "hour", true); // 可為負
+  let cyclesPassed = 0;
+  if (hoursSinceRespawn >= b.interval) {
+    cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
+    b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
+    b.notified = false; // 重置通知
+    b.missedCount = (b.missedCount || 0) + cyclesPassed; // 更新過期次數
+    updated = true;
+  }
     // 前 10 分鐘通知 → 收集在 notifyList
     if (diff > 0 && diff <= 10 && !b.notified && notifyAll) {
       const today = now.format("ddd").toUpperCase();
