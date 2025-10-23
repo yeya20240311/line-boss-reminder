@@ -319,21 +319,28 @@ if (text === "/王") {
       const intervalMin = b.interval * 60;
       let diffMin = resp.diff(now, "minute");
 
-      let cyclesPassed = 0;
       let icon = "⚔️";
       let cycleText = "";
 
       // 已過重生時間，自動累加 missedCount
       if (diffMin <= 0) {
-        cyclesPassed = Math.floor(Math.abs(diffMin) / intervalMin) + 1;
+        const cyclesPassed = Math.floor(Math.abs(diffMin) / intervalMin) + 1;
+
+        // 推進下一輪時間
         b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
+
+        // 累加 missedCount
         b.missedCount = (b.missedCount || 0) + cyclesPassed;
+
+        // 重置通知
         b.notified = false;
+
         updated = true;
 
         icon = "⚠️";
         cycleText = `過${b.missedCount}`;
-        // 計算下一輪剩餘時間
+
+        // 計算新的剩餘時間
         resp = dayjs(b.nextRespawn).tz(TW_ZONE);
         diffMin = resp.diff(now, "minute");
       }
@@ -358,6 +365,7 @@ if (text === "/王") {
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
 }
+
 
 
 
