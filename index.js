@@ -12,6 +12,9 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TW_ZONE = process.env.TIMEZONE || "Asia/Taipei";
+// ===== PID 檢查 =====
+console.log("🚀 LINE Boss Bot 啟動中，Process PID:", process.pid);
+
 
 // ===== LINE 設定 =====
 const config = {
@@ -349,6 +352,9 @@ if (text === "/王") {
   // /關閉通知
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
+
+// ===== PID 檢查 =====
+console.log("🚀 LINE Boss Bot 啟動中，Process PID:", process.pid);
 
 // ===== 每 10 分鐘檢查通知 =====
 cron.schedule("*/10 * * * *", async () => {
