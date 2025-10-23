@@ -354,7 +354,7 @@ if (text === "/王") {
 }
 
 // ===== PID 檢查 =====
-console.log("🚀 LINE Boss Bot 啟動中，Process PID:", process.pid);
+console.log("🕐 定時器啟動於 PID:", process.pid);
 
 // ===== 每 10 分鐘檢查通知 =====
 // 增加防重送機制：每分鐘最多發送一次
