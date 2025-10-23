@@ -316,29 +316,26 @@ if (text === "/王") {
       if (!b.nextRespawn || !b.interval) return `❌ ${name} 尚未設定重生時間`;
 
       let resp = dayjs(b.nextRespawn).tz(TW_ZONE);
-      const diffMin = resp.diff(now, "minute");
-      const h = Math.floor(Math.abs(diffMin) / 60);
-      const m = Math.abs(diffMin) % 60;
-      const respTime = resp.format("HH:mm");
+const diffMin = resp.diff(now, "minute");
+const intervalMin = b.interval * 60;
 
-      // 🔹 計算已過輪數
-      const hoursSinceRespawn = now.diff(resp, "hour", true);
-      let cycleText = "";
-      if (hoursSinceRespawn >= b.interval) {
-        const cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
-        cycleText = `過${cyclesPassed}`;
+let cyclesPassed = 0;
+if (diffMin <= 0) {
+  // 算過了幾輪，包括當前這輪
+  cyclesPassed = Math.floor(Math.abs(diffMin) / intervalMin) + 1;
 
-        // 自動推進下一輪時間
-        b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
+  // 推進下一輪重生時間
+  b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
 
-        // 自動累加錯過計數
-        b.missedCount = (b.missedCount || 0) + cyclesPassed;
+  // 累加 missedCount
+  b.missedCount = (b.missedCount || 0) + cyclesPassed;
 
-        // 重置通知
-        b.notified = false;
+  // 重置通知
+  b.notified = false;
 
-        updated = true;
-      }
+  updated = true; // 別忘了加這行
+}
+
 
       const icon = (diffMin <= 0 || cycleText) ? "⚠️" : "⚔️";
       return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${cycleText ? " " + cycleText : ""}`;
