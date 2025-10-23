@@ -308,33 +308,39 @@ if (text === "/王") {
   const list = Object.keys(bossData)
     .map(name => {
       const b = bossData[name];
-      if (!b.nextRespawn) return `❌ ${name} 尚未設定重生時間`;
-      const diff = dayjs(b.nextRespawn).tz(TW_ZONE).diff(now, "minute");
-      const h = Math.floor(Math.abs(diff)/60);
-      const m = Math.abs(diff) % 60;
-      const respTime = dayjs(b.nextRespawn).tz(TW_ZONE).format("HH:mm");
-      const icon = (diff <= 0 || (b.missedCount && b.missedCount > 0)) ? "⚠️" : "⚔️";
-      const missedText = (b.missedCount && b.missedCount > 0) ? ` 過${b.missedCount}` : "";
-      return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${missedText}`;
+      if (!b.nextRespawn || !b.interval) return `❌ ${name} 尚未設定重生時間`;
+
+      const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
+      const diffMin = resp.diff(now, "minute");
+      const diffHour = diffMin / 60;
+      const h = Math.floor(Math.abs(diffMin) / 60);
+      const m = Math.abs(diffMin) % 60;
+      const respTime = resp.format("HH:mm");
+
+      // 🔹 準確計算已經過幾輪
+      const hoursSinceRespawn = now.diff(resp, "hour", true); // 可為負
+      let cycleText = "";
+      if (hoursSinceRespawn >= b.interval * 2) {
+        cycleText = "過2";
+      } else if (hoursSinceRespawn >= b.interval) {
+        cycleText = "過1";
+      }
+
+      const icon = (diffMin <= 0 || cycleText) ? "⚠️" : "⚔️";
+      return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${cycleText ? " " + cycleText : ""}`;
     })
-   .sort((a,b)=>{
-  const aMatch = a.match(/剩餘 (\d+)小時(\d+)分/);
-  const bMatch = b.match(/剩餘 (\d+)小時(\d+)分/);
-
-  const aMin = aMatch ? parseInt(aMatch[1]) * 60 + parseInt(aMatch[2]) : 9999;
-  const bMin = bMatch ? parseInt(bMatch[1]) * 60 + parseInt(bMatch[2]) : 9999;
-
-  return aMin - bMin;
-})
+    .sort((a, b) => {
+      const aMatch = a.match(/剩餘 (\d+)小時(\d+)分/);
+      const bMatch = b.match(/剩餘 (\d+)小時(\d+)分/);
+      const aMin = aMatch ? parseInt(aMatch[1]) * 60 + parseInt(aMatch[2]) : 9999;
+      const bMin = bMatch ? parseInt(bMatch[1]) * 60 + parseInt(bMatch[2]) : 9999;
+      return aMin - bMin;
+    })
     .join("\n");
 
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
   return;
 }
-
-
-
-
 
 
   // /開啟通知
