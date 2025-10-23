@@ -370,7 +370,7 @@ if (text === "/王") {
 // ===== PID 檢查 =====
 console.log("🕐 定時器啟動於 PID:", process.pid);
 
-// ===== 每 10 分鐘檢查通知 =====
+// ===== 每 10 分鐘檢查通知並自動累加 missedCount =====
 let lastSentTime = 0; // UNIX timestamp（毫秒）
 
 cron.schedule("*/10 * * * *", async () => {
@@ -392,23 +392,15 @@ cron.schedule("*/10 * * * *", async () => {
 
     const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
     const diffMin = resp.diff(now, "minute");
+    const intervalMin = b.interval * 60;
 
-    // ===== 自動推進過期週期並更新 missedCount =====
-    const hoursSinceRespawn = now.diff(resp, "hour", true);
-    if (hoursSinceRespawn >= b.interval) {
-      const cyclesPassed = Math.floor(hoursSinceRespawn / b.interval);
-
-      // 推進下次重生時間
+    // ===== 自動累加 missedCount（王時間到期就 +1） =====
+    if (diffMin <= 0) {
+      const cyclesPassed = Math.floor(Math.abs(diffMin) / intervalMin) + 1; // 超過幾輪
       b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
-
-      // 累加錯過次數
       b.missedCount = (b.missedCount || 0) + cyclesPassed;
-
-      // 重置通知狀態
       b.notified = false;
-
       updated = true;
-
       console.log(`⚠️ ${name} 已過 ${cyclesPassed} 輪，missedCount += ${cyclesPassed}`);
     }
 
@@ -455,11 +447,9 @@ cron.schedule("*/10 * * * *", async () => {
   // 如果有更新，寫回 Google Sheets
   if (updated) await saveBossDataToSheet();
   
-// 💓 心跳訊息，只印出時間
+  // 💓 心跳訊息，只印出時間
   console.log("🕐 定時器仍在運作中", now.format("YYYY/MM/DD HH:mm:ss"));
 });
-
-
 
 
 // ===== 啟動 =====
