@@ -46,23 +46,27 @@ const SHEET_NAME = "Boss";
 let bossData = {};
 let notifyAll = true;
 
+// ===== 分類資料 =====
+let categoryData = {};
+
 // ===== 從 Google Sheets 載入資料 =====
 async function loadBossData() {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${SHEET_NAME}!A2:F`,
+      range: `${SHEET_NAME}!A2:G`, // ✅ 改成 A2:G
     });
     const rows = res.data.values || [];
     bossData = {};
     rows.forEach((r) => {
-      const [name, interval, nextRespawn, notified, notifyDate, missedCount] = r;
+      const [name, interval, nextRespawn, notified, notifyDate, missedCount, category] = r;
       bossData[name] = {
         interval: parseFloat(interval) || 0,
         nextRespawn: nextRespawn || null,
         notified: notified === "TRUE",
         notifyDate: notifyDate || "ALL",
         missedCount: parseInt(missedCount) || 0,
+        category: category || "", // ✅ 加入分類欄
       };
     });
     console.log(`✅ 已從 Google Sheets 載入資料 (${rows.length} 筆)`);
@@ -81,10 +85,11 @@ async function saveBossDataToSheet() {
       b.notified ? "TRUE" : "FALSE",
       b.notifyDate || "ALL",
       b.missedCount || 0,
+      b.category || "", // ✅ 加入分類
     ]);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `${SHEET_NAME}!A2:F`,
+      range: `${SHEET_NAME}!A2:G`, // ✅ 改成 A2:G
       valueInputOption: "RAW",
       resource: { values: rows },
     });
@@ -120,19 +125,44 @@ async function handleEvent(event) {
 if (text === "/幫助") {
   await client.replyMessage(event.replyToken, {
     type: "text",
-    text: `📌 可用指令：
-/設定 王名 間隔(小時.分)  → 設定王的重生間隔
-/重生 王名 剩餘時間(小時.分)  → 設定王的下次重生時間
-/刪除 王名  → 刪除王資料
-/通知 類別(冰/奇) 參數(0/9/1.2...)  → 設定通知日期
-/資訊  → 查看所有王的間隔與通知設定
-/王  → 查看所有王的剩餘時間與重生時間
-/開啟通知  → 開啟所有前10分鐘提醒
-/關閉通知  → 關閉所有前10分鐘提醒
-/我的ID  → 顯示群組/聊天室/個人 ID`
+    text: `📖 指令說明：
+━━━━━━━━━━━
+🧩 基本功能：
+/設定 王名 間隔(小時.分)
+　→ 設定王的重生間隔
+/重生 王名 剩餘時間(小時.分)
+　→ 登記王的下次重生時間
+/刪除 王名
+　→ 刪除該王資料
+/王
+　→ 查看所有王的剩餘時間與預計重生時間
+━━━━━━━━━━━
+📅 通知相關：
+/通知 類別(如 冰/奇) 參數(0/9/1.2...)
+　→ 設定該分類的通知日期
+　　0＝關閉通知
+　　9＝每天通知
+　　1.2.3＝星期一二三通知
+/開啟通知
+　→ 全域開啟前10分鐘提醒
+/關閉通知
+　→ 全域關閉前10分鐘提醒
+━━━━━━━━━━━
+🗂 分類管理：
+/分類 類別 王名
+　→ 將王加入指定分類
+/分類刪除 類別 王名
+　→ 從分類中移除王
+━━━━━━━━━━━
+ℹ️ 其他：
+/資訊
+　→ 查看所有王的設定與通知日
+/我的ID
+　→ 顯示目前的群組、聊天室或個人 ID`
   });
   return;
 }
+
 
   // /我的ID
 if (text === "/我的ID") {
@@ -207,29 +237,96 @@ if (text === "/我的ID") {
     return;
   }
 
+// ===== /分類 類別 王名 =====
+if (args[0] === "/分類" && args.length === 3) {
+  const [_, category, name] = args;
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:G`,
+  });
+  const rows = res.data.values || [];
+  const index = rows.findIndex(r => r[0] === name);
+
+  if (index === -1) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `❌ 找不到名稱為「${name}」的王。`,
+    });
+    return;
+  }
+
+  // 更新 bossData 與試算表
+  bossData[name].category = category;
+  rows[index][6] = category; // 第 G 欄（index 6）
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:G`,
+    valueInputOption: "RAW",
+    resource: { values: rows },
+  });
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: `✅ 已將「${name}」分類為「${category}」`,
+  });
+  return;
+}
+
+// ===== /分類刪除 王名 =====
+if (args[0] === "/分類刪除" && args.length === 2) {
+  const [_, name] = args;
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:G`,
+  });
+  const rows = res.data.values || [];
+  const index = rows.findIndex(r => r[0] === name);
+
+  if (index === -1) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `❌ 找不到名稱為「${name}」的王。`,
+    });
+    return;
+  }
+
+  // 更新 bossData 與試算表
+  bossData[name].category = "";
+  rows[index][6] = ""; // 清空 G 欄
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:G`,
+    valueInputOption: "RAW",
+    resource: { values: rows },
+  });
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: `✅ 已移除「${name}」的分類`,
+  });
+  return;
+}
+
+
 // /通知 類別 參數
 if (args[0] === "/通知" && args.length === 3) {
   const [_, category, notifyStr] = args;
 
-  // 定義分類
-  const ICE_BOSSES = ["冰1", "冰2北", "冰2南"];
-  const OTHERS = [
-    "激3", "奇3北", "奇1北", "激2", "奇3南",
-    "奇2西", "奇2東", "奇1南"
-  ];
+  // 🔍 從 bossData 找出該分類的所有王
+  const targets = Object.keys(bossData).filter(name => bossData[name].category === category);
 
-  let targets = [];
-  if (category === "冰") {
-    targets = ICE_BOSSES;
-  } else if (category === "奇") {
-    targets = OTHERS;
-  } else {
+  if (targets.length === 0) {
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: `❌ 未知的分類：${category}\n可用類別：冰、奇`
+      text: `❌ 找不到類別：${category}\n請先用 /分類 ${category} 王名 建立分類`,
     });
     return;
   }
+
+  // 以下照原本邏輯不變 ...
+
 
   // 通知設定轉換
   let notifyDate = "ALL";
@@ -238,19 +335,8 @@ if (args[0] === "/通知" && args.length === 3) {
   } else if (notifyStr === "9") {
     notifyDate = "ALL";
   } else {
-    const dayMap = {
-      "1": "MON",
-      "2": "TUE",
-      "3": "WED",
-      "4": "THU",
-      "5": "FRI",
-      "6": "SAT",
-      "7": "SUN",
-    };
-    const days = notifyStr
-      .split(".")
-      .map(d => dayMap[d])
-      .filter(Boolean);
+    const dayMap = { "1": "MON", "2": "TUE", "3": "WED", "4": "THU", "5": "FRI", "6": "SAT", "7": "SUN" };
+    const days = notifyStr.split(".").map(d => dayMap[d]).filter(Boolean);
     notifyDate = days.length > 0 ? days.join(",") : "ALL";
   }
 
@@ -264,11 +350,8 @@ if (args[0] === "/通知" && args.length === 3) {
 
   await saveBossDataToSheet();
 
-  const weekdayNames = {
-    MON: "一", TUE: "二", WED: "三",
-    THU: "四", FRI: "五", SAT: "六", SUN: "日"
-  };
-  let readable = notifyDate === "ALL"
+  const weekdayNames = { MON:"一", TUE:"二", WED:"三", THU:"四", FRI:"五", SAT:"六", SUN:"日" };
+  const readable = notifyDate === "ALL"
     ? "每天"
     : notifyDate === "NONE"
       ? "已關閉"
@@ -276,10 +359,11 @@ if (args[0] === "/通知" && args.length === 3) {
 
   await client.replyMessage(event.replyToken, {
     type: "text",
-    text: `✅ 已更新 ${category} 類通知\n📅 通知日：${readable}\n🧊 影響王：${updated.join("、")}`
+    text: `✅ 已更新 ${category} 類通知\n📅 通知日：${readable}\n🧊 影響王：${updated.join("、")}`,
   });
   return;
 }
+
 
 // /資訊 顯示
 if (text === "/資訊") {
