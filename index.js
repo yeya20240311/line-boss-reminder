@@ -503,42 +503,27 @@ cron.schedule("*/10 * * * *", async () => {
     }
   }
 
-  // 發送通知
-  if (notifyList.length > 0) {
-    const messageText = notifyList
-      .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
-      .join("\n");
+// 發送通知（已關閉 LINE 推播，只印 log）
+if (notifyList.length > 0) {
+  const messageText = notifyList
+    .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
+    .join("\n");
 
-    const maxRetries = 3;
-    let sent = false;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await client.pushMessage(targetId, { type: "text", text: messageText });
-        console.log("✅ 通知發送成功");
-        sent = true;
-        lastSentTime = Date.now(); // 更新最後發送時間
-        break;
-      } catch (err) {
-        console.error(`⚠️ 通知發送失敗 (第 ${attempt} 次):`, err.statusCode, err.statusMessage);
-        if (attempt < maxRetries) await new Promise(res => setTimeout(res, 3000));
-      }
-    }
+  // 直接印 log，不再呼叫 client.pushMessage
+  console.log("✅ 通知發送（已關閉 LINE 推播）：\n" + messageText);
 
-    // 標記已通知
-    if (sent) {
-      notifyList.forEach(b => {
-        if (bossData[b.name]) bossData[b.name].notified = true;
-      });
-      updated = true;
-    }
-  }
+  // 標記已通知
+  notifyList.forEach(b => {
+    if (bossData[b.name]) bossData[b.name].notified = true;
+  });
+  updated = true;
+}
 
-  // 如果有更新，寫回 Google Sheets
-  if (updated) await saveBossDataToSheet();
-  
-  // 💓 心跳訊息，只印出時間
-  console.log("🕐 定時器仍在運作中", now.format("YYYY/MM/DD HH:mm:ss"));
-});
+// 如果有更新，寫回 Google Sheets
+if (updated) await saveBossDataToSheet();
+
+// 💓 心跳訊息，只印出時間
+console.log("🕐 定時器仍在運作中", now.format("YYYY/MM/DD HH:mm:ss"));
 
 
 // ===== 啟動 =====
