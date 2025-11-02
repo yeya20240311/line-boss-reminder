@@ -525,6 +525,7 @@ if (updated) await saveBossDataToSheet();
 // 💓 心跳訊息，只印出時間
 console.log("🕐 定時器仍在運作中", now.format("YYYY/MM/DD HH:mm:ss"));
 
+  });
 
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
