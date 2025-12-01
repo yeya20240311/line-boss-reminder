@@ -503,23 +503,35 @@ cron.schedule("*/10 * * * *", async () => {
     }
   }
 
-// 發送通知（已關閉 LINE 推播，只印 log）
+// 有要通知的王
 if (notifyList.length > 0) {
   const messageText = notifyList
     .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
     .join("\n");
 
-  // 直接印 log，不再呼叫 client.pushMessage
-  console.log("✅ 通知發送（已關閉 LINE 推播）：\n" + messageText);
+  console.log("📣 即將推播通知：\n" + messageText);
 
-  // 標記已通知
-  notifyList.forEach(b => {
-    if (bossData[b.name]) bossData[b.name].notified = true;
-  });
-  updated = true;
+  // 🔥 發送 LINE 推播
+  try {
+    await client.pushMessage(targetId, {
+      type: "text",
+      text: messageText,
+    });
+
+    console.log("📣 已成功推播到 LINE");
+
+    // 標記已通知
+    notifyList.forEach(b => {
+      if (bossData[b.name]) bossData[b.name].notified = true;
+    });
+
+    updated = true;
+  } catch (err) {
+    console.error("❌ 推播失敗：", err);
+  }
 }
 
-// 如果有更新，寫回 Google Sheets
+// 若有更新，則寫回 Google Sheet
 if (updated) await saveBossDataToSheet();
 
 // 💓 心跳訊息，只印出時間
