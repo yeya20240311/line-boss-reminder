@@ -22,7 +22,7 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new Client(config);
-
+ 
 // ===== Google Sheets 設定 =====
 const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
 const GOOGLE_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
