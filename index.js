@@ -118,6 +118,7 @@ app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 // ===== 指令處理 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
+    console.log(`🕐 心跳 / 指令觸發: ${dayjs().tz(TW_ZONE).format("YYYY/MM/DD HH:mm:ss")}`);
   const text = event.message.text.trim();
   const args = text.split(/\s+/);
 
@@ -163,7 +164,6 @@ if (text === "/幫助") {
   return;
 }
 
-
   // /我的ID
 if (text === "/我的ID") {
   let idText = "";
@@ -185,6 +185,7 @@ if (text === "/我的ID") {
   });
   return;
 }
+
   // /設定 王名 間隔
   if (args[0] === "/設定" && args.length === 3) {
     const [_, name, intervalStr] = args;
@@ -455,87 +456,6 @@ if (text === "/王") {
   // /關閉通知
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
-
-// ===== PID 檢查 =====
-console.log("🕐 定時器啟動於 PID:", process.pid);
-
-// ===== 每 10 分鐘檢查通知並自動累加 missedCount =====
-let lastSentTime = 0; // UNIX timestamp（毫秒）
-
-cron.schedule("*/10 * * * *", async () => {
-  const now = dayjs().tz(TW_ZONE);
-  const targetId = process.env.GROUP_ID;
-  if (!targetId) return;
-
-  // 防止短時間重複發送
-  if (Date.now() - lastSentTime < 60 * 1000) {
-    console.log("⏳ 距離上次發送不足 1 分鐘，跳過本次通知");
-    return;
-  }
-
-  let updated = false;  // 是否需要寫回 Google Sheets
-  let notifyList = [];  // 本次要通知的王
-
-  for (const [name, b] of Object.entries(bossData)) {
-    if (!b.nextRespawn || !b.interval) continue;
-
-    const resp = dayjs(b.nextRespawn).tz(TW_ZONE);
-    const diffMin = resp.diff(now, "minute");
-    const intervalMin = b.interval * 60;
-
-    // ===== 自動累加 missedCount（王時間到期就 +1） =====
-    if (diffMin <= 0) {
-      const cyclesPassed = Math.floor(Math.abs(diffMin) / intervalMin) + 1; // 超過幾輪
-      b.nextRespawn = resp.add(cyclesPassed * b.interval, "hour").toISOString();
-      b.missedCount = (b.missedCount || 0) + cyclesPassed;
-      b.notified = false;
-      updated = true;
-      console.log(`⚠️ ${name} 已過 ${cyclesPassed} 輪，missedCount += ${cyclesPassed}`);
-    }
-
-    // ===== 前 10 分鐘通知 =====
-    if (diffMin > 0 && diffMin <= 10 && !b.notified && notifyAll) {
-      const today = now.format("ddd").toUpperCase(); // e.g., "MON"
-      const notifyDays = b.notifyDate.split(",");
-      if (b.notifyDate === "ALL" || notifyDays.includes(today)) {
-        notifyList.push({ name, diff: diffMin });
-      }
-    }
-  }
-
-// 有要通知的王
-if (notifyList.length > 0) {
-  const messageText = notifyList
-    .map(b => `⏰ ${b.name} 即將在 ${b.diff} 分鐘後重生`)
-    .join("\n");
-
-  console.log("📣 即將推播通知：\n" + messageText);
-
-  // 🔥 發送 LINE 推播
-  try {
-    await client.pushMessage(targetId, {
-      type: "text",
-      text: messageText,
-    });
-
-    console.log("📣 已成功推播到 LINE");
-
-    // 標記已通知
-    notifyList.forEach(b => {
-      if (bossData[b.name]) bossData[b.name].notified = true;
-    });
-
-    updated = true;
-  } catch (err) {
-    console.error("❌ 推播失敗：", err);
-  }
-}
-
-// 若有更新，則寫回 Google Sheet
-if (updated) await saveBossDataToSheet();
-
-// 💓 心跳訊息，只印出時間
-console.log("🕐 定時器仍在運作中", now.format("YYYY/MM/DD HH:mm:ss"));
 
   });
 
