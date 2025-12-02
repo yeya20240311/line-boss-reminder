@@ -448,16 +448,12 @@ if (text === "/王") {
 
 
 
-
-
   // /開啟通知
   if (text === "/開啟通知") { notifyAll = true; await client.replyMessage(event.replyToken,{ type:"text", text:"✅ 已開啟所有前10分鐘通知"}); return; }
 
   // /關閉通知
   if (text === "/關閉通知") { notifyAll = false; await client.replyMessage(event.replyToken,{ type:"text", text:"❌ 已關閉所有前10分鐘通知"}); return; }
 }
-
-  });
 
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
