@@ -458,7 +458,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
       spreadsheetId: SHEET_ID,
       range: `${SHEET_NAME}!H2`,
       valueInputOption: "RAW",
-      requestBody: { values: [[newValue]] },
+     resource: { values: [[newValue]] },
     });
 
     const replyText = notifyAll
