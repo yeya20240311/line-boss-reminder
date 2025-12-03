@@ -423,7 +423,7 @@ if (text === "/王") {
       const cycleText = missedCount > 0 ? `過${missedCount}` : "";
 
       return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${cycleText ? " " + cycleText : ""}`;
-    }) // <-- 這裡關閉 map
+    })
     .sort((a, b) => {
       const aMatch = a.match(/剩餘 (\d+)小時(\d+)分/);
       const bMatch = b.match(/剩餘 (\d+)小時(\d+)分/);
@@ -433,18 +433,8 @@ if (text === "/王") {
     })
     .join("\n");
 
-  if (updated) await saveBossDataToSheet();
-
-  await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
-  return;
-} // <-- 這裡關閉 if
-
-
-
   // 🔄 若有更新，存回 Google Sheets
-  if (updated) {
-    await saveBossDataToSheet();
-  }
+  if (updated) await saveBossDataToSheet();
 
   // 📩 回覆列表
   await client.replyMessage(event.replyToken, { type: "text", text: list || "尚無任何王的資料" });
