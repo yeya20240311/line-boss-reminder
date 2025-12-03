@@ -395,46 +395,44 @@ if (text === "/王") {
   const now = dayjs().tz(TW_ZONE);
   let updated = false; // 用來標記是否需要存回 Google Sheets
 
-  const list = Object.keys(bossData)
-    .map(name => {
+ const list = Object.keys(bossData)
+    .map((name) => {
       const b = bossData[name];
-      if (!b.nextRespawn || !b.interval) return `❌ ${name} 尚未設定重生時間`;
+      if (!b.nextRespawn || !b.interval)
+        return `❌ ${name} 尚未設定重生時間`;
 
-      let resp = dayjs(b.nextRespawn).tz(TW_ZONE);
-      let missedCount = b.missedCount || 0;
+    let resp = dayjs(b.nextRespawn).tz(TW_ZONE);
+    let missedCount = b.missedCount || 0;
 
-      // 🔁 檢查是否已超過重生時間，若超過則往後推算新的時間並加上 missedCount
-      while (now.isAfter(resp)) {
-        resp = resp.add(b.interval, "hour");
-        missedCount++;
-        updated = true;
-      }
+    while (now.isAfter(resp)) {
+      resp = resp.add(b.interval, "hour");
+      missedCount++;
+      updated = true;
+    }
 
-      // ⏱️ 計算剩餘時間
-      const diffMin = resp.diff(now, "minute");
-      const h = Math.floor(diffMin / 60);
-      const m = diffMin % 60;
-      const respTime = resp.format("HH:mm");
+    const diffMin = resp.diff(now, "minute");
+    const h = Math.floor(diffMin / 60);
+    const m = diffMin % 60;
+    const respTime = resp.format("HH:mm");
 
-      // 🟡 更新 bossData 內部資料
-      b.nextRespawn = resp.toISOString();
-      b.missedCount = missedCount;
-      b.notified = false;
+    b.nextRespawn = resp.toISOString();
+    b.missedCount = missedCount;
+    b.notified = false;
 
-      // 💬 根據是否過期切換顯示
-      const icon = missedCount > 0 ? "⚠️" : "⚔️";
-      const cycleText = missedCount > 0 ? `過${missedCount}` : "";
+    const icon = missedCount > 0 ? "⚠️" : "⚔️";
+    const cycleText = missedCount > 0 ? `過${missedCount}` : "";
 
-      return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${cycleText ? " " + cycleText : ""}`;
-    })
-    .sort((a, b) => {
-      const aMatch = a.match(/剩餘 (\d+)小時(\d+)分/);
-      const bMatch = b.match(/剩餘 (\d+)小時(\d+)分/);
-      const aMin = aMatch ? parseInt(aMatch[1]) * 60 + parseInt(aMatch[2]) : 9999;
-      const bMin = bMatch ? parseInt(bMatch[1]) * 60 + parseInt(bMatch[2]) : 9999;
-      return aMin - bMin;
-    })
-    .join("\n");
+    return `${icon} ${name} 剩餘 ${h}小時${m}分（預計 ${respTime}）${cycleText ? " " + cycleText : ""}`;
+  })
+  .sort((a, b) => {
+    const aMatch = a.match(/剩餘 (\d+)小時(\d+)分/);
+    const bMatch = b.match(/剩餘 (\d+)小時(\d+)分/);
+    const aMin = aMatch ? parseInt(aMatch[1]) * 60 + parseInt(aMatch[2]) : 9999;
+    const bMin = bMatch ? parseInt(bMatch[1]) * 60 + parseInt(bMatch[2]) : 9999;
+    return aMin - bMin;
+  })
+  .join("\n");
+
 
   // 🔄 若有更新，存回 Google Sheets
   if (updated) {
