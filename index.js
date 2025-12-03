@@ -101,8 +101,7 @@ async function saveBossDataToSheet() {
 
 // ===== Express =====
 const app = express();
-app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } })); // 保存 raw body 給 middleware
-app.post("/webhook", express.raw({ type: "application/json" }), middleware(config), async (req, res) => {
+app.post("/webhook", middleware(config), async (req, res) => {
   try {
     const events = req.body.events || [];
     await Promise.all(events.map(handleEvent));
@@ -112,6 +111,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), middleware(confi
     res.sendStatus(500);
   }
 });
+
 
 app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 
