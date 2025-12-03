@@ -474,9 +474,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
-
-
-
+}
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
