@@ -448,39 +448,6 @@ if (text === "/王") {
 
 
 
-// /開啟通知
-if (text === "/開啟通知" || text === "/關閉通知") {
-  const newValue = text === "/開啟通知" ? "開啟通知" : "關閉通知";
-  notifyAll = text === "/開啟通知";
-
-  try {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${SHEET_NAME}!H2`,
-      valueInputOption: "RAW",
-     resource: { values: [[newValue]] },
-    });
-
-    const replyText = notifyAll
-      ? "✅ 已全域開啟前10分鐘通知"
-      : "❌ 已全域關閉前10分鐘通知";
-
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: replyText,
-    });
-
-    console.log(`📌 已更新總通知開關為：${newValue}`);
-  } catch (err) {
-    console.error("❌ 更新總通知開關失敗", err);
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: "❌ 更新總通知開關失敗，請稍後再試",
-    });
-  }
-
-  return; // 已處理完指令
-}
 
 
 // ===== 啟動 =====
