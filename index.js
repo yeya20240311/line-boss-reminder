@@ -42,6 +42,52 @@ const auth = new google.auth.JWT(
 const sheets = google.sheets({ version: "v4", auth });
 const SHEET_NAME = "Boss";
 
+// ===== 四轉材料計算設定 =====
+const FINAL_BOOK = {
+  教皇認可: 15,
+  實習匠人的證明盾: 15,
+  傭兵隊長推薦書: 40,
+  墨水晶: 500,
+  金幣: 50_000_000,
+};
+
+const CRAFT = {
+  教皇認可: {
+    maxFail: 5,
+    cost: {
+      詛咒精華: 5,
+      優級轉職信物: 8,
+      轉職信物: 10,
+      墨水晶: 20,
+      金幣: 1_000_000,
+    },
+  },
+  實習匠人的證明盾: {
+    maxFail: 10,
+    cost: {
+      古代匠人的合金: 5,
+      冰凍之淚: 5,
+      金屬殘片: 3,
+      墨水晶: 30,
+      金幣: 450_000,
+    },
+  },
+  傭兵隊長推薦書: {
+    maxFail: 15,
+    cost: {
+      古代莎草紙: 10,
+      轉職信物: 20,
+      金屬殘片: 3,
+      墨水晶: 10,
+      金幣: 200_000,
+    },
+  },
+};
+
+function remainTry(maxFail, currentFail) {
+  return Math.max(maxFail + 1 - currentFail, 1);
+}
+
 // ===== Bot 資料 =====
 let bossData = {};
 let notifyAll = true;
@@ -163,6 +209,36 @@ if (text === "/幫助") {
   });
   return;
 }
+
+  if (text === "/4轉材料") {
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: `📘 四轉材料計算說明
+━━━━━━━━━━━
+請依下列順序輸入（用 . 分隔）：
+
+1 教皇認可
+2 教皇認可 目前失敗次數
+3 傭兵隊長推薦書
+4 傭兵隊長推薦書 失敗次數
+5 實習匠人的證明盾
+6 實習匠人的證明盾 失敗次數
+7 詛咒精華
+8 優級轉職信物
+9 古代匠人的合金
+10 冰凍之淚
+11 轉職信物
+12 金屬殘片
+13 古代莎草紙
+14 墨水晶
+15 金幣
+
+範例：
+/4轉 7.1.12.5.10.2.3.14.0.187.599.2634.4.55.2391180`
+  });
+  return;
+}
+
 
   // /我的ID
 if (text === "/我的ID") {
@@ -473,6 +549,116 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   }
   return;
 }
+
+  if (args[0] === "/4轉") {
+  const raw = args[1];
+  if (!raw) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 格式錯誤，請先輸入 /4轉材料 查看說明",
+    });
+    return;
+  }
+
+  const nums = raw.split(".").map(n => parseInt(n, 10) || 0);
+  if (nums.length !== 15) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 數量不足，請確認是否輸入 15 個數字",
+    });
+    return;
+  }
+
+  const [
+    have教皇, fail教皇,
+    have推薦, fail推薦,
+    have盾, fail盾,
+    have詛咒,
+    have優級,
+    have合金,
+    have冰淚,
+    have信物,
+    have殘片,
+    have莎草,
+    have墨水,
+    have金幣
+  ] = nums;
+
+  // ===== 計算需要製作數量 =====
+  const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
+  const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
+  const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
+
+  // ===== 累加實際需求 =====
+  const need = {
+    教皇認可: need教皇,
+    實習匠人的證明盾: need盾,
+    傭兵隊長推薦書: need推薦,
+    詛咒精華: 0,
+    優級轉職信物: 0,
+    古代匠人的合金: 0,
+    冰凍之淚: 0,
+    轉職信物: 0,
+    金屬殘片: 0,
+    古代莎草紙: 0,
+    墨水晶: FINAL_BOOK.墨水晶,
+    金幣: FINAL_BOOK.金幣,
+  };
+
+  // 教皇認可
+  let times = remainTry(CRAFT.教皇認可.maxFail, fail教皇);
+  for (const k in CRAFT.教皇認可.cost) {
+    need[k] += need教皇 * times * CRAFT.教皇認可.cost[k];
+  }
+
+  // 實習匠人盾
+  times = remainTry(CRAFT.實習匠人的證明盾.maxFail, fail盾);
+  for (const k in CRAFT.實習匠人的證明盾.cost) {
+    need[k] += need盾 * times * CRAFT.實習匠人的證明盾.cost[k];
+  }
+
+  // 傭兵隊長推薦書
+  times = remainTry(CRAFT.傭兵隊長推薦書.maxFail, fail推薦);
+  for (const k in CRAFT.傭兵隊長推薦書.cost) {
+    need[k] += need推薦 * times * CRAFT.傭兵隊長推薦書.cost[k];
+  }
+
+  // ===== 扣掉目前擁有 =====
+  const have = {
+    詛咒精華: have詛咒,
+    優級轉職信物: have優級,
+    古代匠人的合金: have合金,
+    冰凍之淚: have冰淚,
+    轉職信物: have信物,
+    金屬殘片: have殘片,
+    古代莎草紙: have莎草,
+    墨水晶: have墨水,
+    金幣: have金幣,
+  };
+
+ const lines = [];
+const formatSet = new Set(["金幣", "墨水晶"]);
+
+for (const k in need) {
+  const missing = Math.max(need[k] - (have[k] || 0), 0);
+
+  const value = formatSet.has(k)
+    ? missing.toLocaleString()
+    : missing;
+
+  lines.push(`${k}：${value}`);
+}
+
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: `📘 四轉材料缺口（最慘情況）
+
+${lines.join("\n")}`,
+  });
+  return;
+}
+
 
 }
 // ===== 啟動 =====
