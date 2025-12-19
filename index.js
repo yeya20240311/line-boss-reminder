@@ -571,8 +571,8 @@ if (args[0] === "/4轉") {
 
   let [
     have教皇, fail教皇,
-    have推薦, fail推薦,
     have盾, fail盾,
+    have推薦, fail推薦,
     have詛咒,
     have優級,
     have合金,
@@ -624,11 +624,12 @@ if (args[0] === "/4轉") {
   const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
   const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
   const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
-
+  
   // 累加到總需求
   for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
   for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
   for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
+   
 
   // 扣掉現有材料
   const have = {
