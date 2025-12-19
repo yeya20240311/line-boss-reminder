@@ -605,7 +605,34 @@ if (args[0] === "/4轉") {
     金幣: FINAL_BOOK.金幣,
   };
 
-  // 現有材料
+  // ===== 計算材料函數（最慘情況） =====
+  function calcMaterial(bookName, needNum, failCount) {
+    if (!CRAFT[bookName]) return {};
+    const maxFail = CRAFT[bookName].maxFail;
+    const timesToSuccess = maxFail + 1; // 每本書最慘嘗試次數
+    const result = {};
+
+    for (const mat in CRAFT[bookName].cost) {
+      const perBook = CRAFT[bookName].cost[mat];
+      // 總需求 = (剩餘書本數 × 每本最大嘗試次數 × 每次消耗) - 已失敗消耗 - 現有材料
+      const total = needNum * timesToSuccess * perBook - failCount * perBook;
+      result[mat] = Math.max(total, 0);
+    }
+
+    return result;
+  }
+
+  // 計算各書材料需求
+  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
+  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
+  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
+
+  // 累加到總需求
+  for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
+  for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
+  for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
+
+  // 扣掉現有材料
   const have = {
     詛咒精華: have詛咒,
     優級轉職信物: have優級,
@@ -618,41 +645,12 @@ if (args[0] === "/4轉") {
     金幣: have金幣,
   };
 
-  // ===== 計算剩餘製作次數 =====
-  function remainTry(maxFail, currentFail) {
-    return Math.max(maxFail + 1 - currentFail, 1);
-  }
-
-  // ===== 計算每個書本材料需求 =====
-  function calcMaterial(bookName, needNum, failCount) {
-    if (!CRAFT[bookName]) return {};
-    const remainingTimes = remainTry(CRAFT[bookName].maxFail, failCount);
-    const result = {};
-    for (const mat in CRAFT[bookName].cost) {
-      const perBook = CRAFT[bookName].cost[mat];
-      // 總需求 = 剩餘書本數量 * 剩餘製作次數 * 每本消耗 - 已有材料
-      const total = needNum * remainingTimes * perBook - (have[mat] || 0);
-      result[mat] = Math.max(total, 0);
-    }
-    return result;
-  }
-
-  // ===== 計算各書的材料 =====
-  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
-  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
-  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
-
-  // 累加到總需求（保持順序：教皇 → 盾 → 推薦）
-  for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
-  for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
-  for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
-
   // ===== 產生顯示文字 =====
   const lines = [];
   const formatSet = new Set(["金幣", "墨水晶"]);
 
   for (const k in need) {
-    const missing = Math.max(need[k], 0);
+    const missing = Math.max(need[k] - (have[k] || 0), 0);
     const value = formatSet.has(k) ? missing.toLocaleString() : missing;
     lines.push(`${k}：${value}`);
   }
@@ -663,6 +661,7 @@ if (args[0] === "/4轉") {
   });
   return;
 }
+
 
 
 
