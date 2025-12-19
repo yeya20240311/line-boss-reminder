@@ -550,7 +550,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
-  if (args[0] === "/4轉") {
+if (args[0] === "/4轉") {
   const raw = args[1];
   if (!raw) {
     await client.replyMessage(event.replyToken, {
@@ -589,7 +589,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
   const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
 
-  // 材料需求初始化
+  // 初始化總需求
   const need = {
     教皇認可: need教皇,
     實習匠人的證明盾: need盾,
@@ -605,31 +605,32 @@ if (text === "/開啟通知" || text === "/關閉通知") {
     金幣: FINAL_BOOK.金幣,
   };
 
-  // 計算每個書本的材料缺口
-  function calcMaterial(baseCost, needNum, failCount) {
-    const times = CRAFT[baseCost.name].maxFail + 1; // 最大次數（含失敗）
-    const remainingTimes = times - failCount; // 剩餘需要製作次數
+  // ===== 計算材料函數 =====
+  function calcMaterial(bookName, needNum, failCount) {
+    if (!CRAFT[bookName]) return {};
+    const maxFail = CRAFT[bookName].maxFail;
+    const timesToSuccess = maxFail + 1; // 一次成功所需嘗試次數
     const result = {};
-    for (const mat in CRAFT[baseCost.name].cost) {
-      const perBook = CRAFT[baseCost.name].cost[mat];
-      // 總需求 = 剩餘書本數量 * 剩餘次數 * 每本材料消耗 - 已有材料 - 已失敗消耗
-      result[mat] = needNum * times * perBook - (have[mat] || 0) - failCount * perBook;
-      result[mat] = Math.max(result[mat], 0); // 不會出現負數
+    for (const mat in CRAFT[bookName].cost) {
+      const perBook = CRAFT[bookName].cost[mat];
+      // 總需求公式
+      const total = needNum * timesToSuccess * perBook - failCount * perBook;
+      result[mat] = Math.max(total, 0); // 不會出現負數
     }
     return result;
   }
 
   // 計算各書的材料
-  const calc教皇 = calcMaterial(CRAFT.教皇認可, need教皇, fail教皇);
-  const calc盾 = calcMaterial(CRAFT.實習匠人的證明盾, need盾, fail盾);
-  const calc推薦 = calcMaterial(CRAFT.傭兵隊長推薦書, need推薦, fail推薦);
+  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
+  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
+  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
 
   // 累加到總需求
   for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
   for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
   for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
 
-  // 扣掉目前擁有材料（部分材料已在 calcMaterial 扣過，可視情況再檢查）
+  // 扣掉現有材料
   const have = {
     詛咒精華: have詛咒,
     優級轉職信物: have優級,
@@ -642,6 +643,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
     金幣: have金幣,
   };
 
+  // ===== 產生顯示文字 =====
   const lines = [];
   const formatSet = new Set(["金幣", "墨水晶"]);
 
