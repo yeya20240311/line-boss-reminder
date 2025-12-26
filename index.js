@@ -561,7 +561,7 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
   if (!raw) {
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: "❌ 格式錯誤，請先輸入 /4轉材料 查看說明",
+      text: "❌ 請輸入 /4轉 數字.數字.數字（共 15 個）",
     });
     return;
   }
@@ -576,9 +576,9 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
   }
 
   const [
-    have教皇, ,
-    have盾, ,
-    have推薦, ,
+    have教皇, fail教皇,
+    have盾, fail盾,
+    have推薦, fail推薦,
     have詛咒,
     have優級,
     have合金,
@@ -599,11 +599,10 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     金幣: 50_000_000,
   };
 
-  // ===== 製作表 =====
+  // ===== 製作表（最慘第 N 次必成功）=====
   const CRAFT = {
     教皇認可: {
       worstTry: 6,
-      bestTry: 1,
       cost: {
         詛咒精華: 5,
         優級轉職信物: 8,
@@ -614,7 +613,6 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     },
     實習匠人的證明盾: {
       worstTry: 11,
-      bestTry: 1,
       cost: {
         古代匠人的合金: 5,
         冰凍之淚: 5,
@@ -625,7 +623,6 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     },
     傭兵隊長推薦書: {
       worstTry: 16,
-      bestTry: 1,
       cost: {
         古代莎草紙: 10,
         轉職信物: 20,
@@ -636,14 +633,13 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     },
   };
 
-  // ===== 還需要製作的數量 =====
+  // ===== 尚需成功數 =====
   const needBook = {
     教皇認可: Math.max(FINAL_BOOK.教皇認可 - have教皇, 0),
     實習匠人的證明盾: Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0),
     傭兵隊長推薦書: Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0),
   };
 
-  // ===== 初始化材料 =====
   const worst = {};
   const best = {};
   const mats = [
@@ -655,25 +651,40 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     best[m] = 0;
   });
 
-  // ===== 計算材料 =====
+  // ===== 核心計算（最非 / 最歐）=====
+  const failMap = {
+    教皇認可: fail教皇,
+    實習匠人的證明盾: fail盾,
+    傭兵隊長推薦書: fail推薦,
+  };
+
   for (const book in needBook) {
-    const count = needBook[book];
-    if (count <= 0) continue;
+    const need = needBook[book];
+    if (need <= 0) continue;
 
     const cfg = CRAFT[book];
+    const failCount = failMap[book] || 0;
+
     for (const mat in cfg.cost) {
-      worst[mat] += cfg.cost[mat] * cfg.worstTry * count;
-      best[mat] += cfg.cost[mat] * cfg.bestTry * count;
+      const per = cfg.cost[mat];
+
+      // 最歐：一次成功
+      best[mat] += per * need;
+
+      // 最非：最慘流程 − 已失敗消耗
+      worst[mat] +=
+        (need * per * cfg.worstTry) -
+        (failCount * per);
     }
   }
 
-  // ===== 頂級轉職書本體成本 =====
+  // ===== 四轉書本體固定成本 =====
   worst.墨水晶 += FINAL_BOOK.墨水晶;
   best.墨水晶 += FINAL_BOOK.墨水晶;
   worst.金幣 += FINAL_BOOK.金幣;
   best.金幣 += FINAL_BOOK.金幣;
 
-  // ===== 扣掉現有 =====
+  // ===== 扣掉現有材料 =====
   const have = {
     詛咒精華: have詛咒,
     優級轉職信物: have優級,
@@ -716,6 +727,7 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
   });
   return;
 }
+
 
 }
 // ===== 啟動 =====
