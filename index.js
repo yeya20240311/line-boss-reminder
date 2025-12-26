@@ -590,50 +590,31 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     have金幣
   ] = nums;
 
-  // ===== 頂級轉職書製作成本表 =====
-  const MATERIAL_COST = {
-    "教皇認可": {
-      cost: { "詛咒精華": 5, "優級轉職信物": 8, "轉職信物": 10, "墨水晶": 20, "金幣": 1000000 },
-      maxFail: 5
-    },
-    "實習匠人的證明盾": {
-      cost: { "古代匠人的合金": 5, "冰凍之淚": 5, "金屬殘片": 3, "墨水晶": 30, "金幣": 450000 },
-      maxFail: 10
-    },
-    "傭兵隊長推薦書": {
-      cost: { "古代莎草紙": 10, "轉職信物": 20, "金屬殘片": 3, "墨水晶": 10, "金幣": 200000 },
-      maxFail: 15
-    }
-  };
-
-  // ===== 剩餘頂級轉職書數量 =====
-  const need教皇 = Math.max(15 - have教皇, 0);
-  const need盾 = Math.max(15 - have盾, 0);
-  const need推薦 = Math.max(40 - have推薦, 0);
-
-  // ===== 計算最慘材料（最非） =====
-  function calcWorst(key, needCount, failCount) {
+  // ===== calcMaterial 函數（最非） =====
+  function calcMaterial(key, needCount, failCount, maxFail) {
     const mat = {};
-    const data = MATERIAL_COST[key];
-    if (!data) return mat;
-    const tries = data.maxFail; // 最慘假設失敗最大次數
-    for (const k in data.cost) {
-      mat[k] = (mat[k] || 0) + data.cost[k] * needCount * (tries + 1);
+    if (!CRAFT[key] || !CRAFT[key].cost) return mat;
+    const tries = maxFail + 1; // 累積失敗 maxFail 次，第 maxFail+1 次必成功
+    for (const k in CRAFT[key].cost) {
+      mat[k] = (mat[k] || 0) + CRAFT[key].cost[k] * tries * needCount;
     }
     return mat;
   }
 
-  // ===== 計算最優材料（最歐） =====
-  function calcBest(key, needCount, haveCount) {
+  // ===== calcMaterialBest 函數（最歐） =====
+  function calcMaterialBest(key, needCount, haveCount) {
     const mat = {};
-    const data = MATERIAL_COST[key];
-    if (!data) return mat;
-    for (const k in data.cost) {
-      // 每次消耗 * 所需數量 - 已有數量
-      mat[k] = Math.max(data.cost[k] * needCount - (haveCount || 0), 0);
+    if (!CRAFT[key] || !CRAFT[key].cost) return mat;
+    for (const k in CRAFT[key].cost) {
+      mat[k] = Math.max(CRAFT[key].cost[k] * needCount - (haveCount || 0), 0);
     }
     return mat;
   }
+
+  // 剩餘書本數
+  const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
+  const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
+  const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
 
   // 初始化需求
   const need = {
@@ -647,15 +628,16 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     轉職信物: 0,
     金屬殘片: 0,
     古代莎草紙: 0,
-    墨水晶: 500,  // 頂級轉職書總需求
-    金幣: 50000000,
+    墨水晶: FINAL_BOOK.墨水晶,
+    金幣: FINAL_BOOK.金幣,
   };
 
-  // 計算最非材料
-  const calc教皇 = calcWorst("教皇認可", need教皇, fail教皇);
-  const calc盾 = calcWorst("實習匠人的證明盾", need盾, fail盾);
-  const calc推薦 = calcWorst("傭兵隊長推薦書", need推薦, fail推薦);
+  // ===== 計算最慘（最非）材料 =====
+  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇, 5);
+  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾, 10);
+  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦, 15);
 
+  // 累加材料
   for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
   for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
   for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
@@ -673,11 +655,16 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     金幣: have金幣,
   };
 
-  // 計算最歐材料
+  // ===== 計算最歐材料 =====
   for (const key of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚"]) {
+    if (!CRAFT[key] || !CRAFT[key].cost) {
+      need[key] = { worst: 0, best: 0 };
+      continue;
+    }
     const worst = Math.max(need[key] - (have[key] || 0), 0);
-    const best = Math.max(need[key] - (have[key] || 0), 0);
-    need[key] = { worst, best: best }; // 目前最簡單公式
+    const firstCost = CRAFT[key].cost[Object.keys(CRAFT[key].cost)[0]] || 1;
+    const best = Math.max(firstCost * worst - (have[key] || 0), 0);
+    need[key] = { worst, best };
   }
 
   // 對應符號（顏色）
