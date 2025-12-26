@@ -171,7 +171,9 @@ async function handleEvent(event) {
   const parts = normalized.split(" ");
 
   console.log(`🕐 心跳 / 指令觸發: ${dayjs().tz(TW_ZONE).format("YYYY/MM/DD HH:mm:ss")}`);
+const args = text.split(/\s+/);
 
+  
 // /幫助
 if (text === "/幫助") {
   await client.replyMessage(event.replyToken, {
