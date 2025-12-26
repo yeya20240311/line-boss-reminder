@@ -590,7 +590,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
       have金幣
     ] = nums;
 
-    // ===== calcMaterial 函數（最非） =====
+     // ===== calcMaterial 函數（最非） =====
     function calcMaterial(key, needCount, failCount) {
       const mat = {};
       if (!CRAFT[key]) return mat;
@@ -606,7 +606,8 @@ if (text === "/開啟通知" || text === "/關閉通知") {
       const mat = {};
       if (!CRAFT[key]) return mat;
       for (const k in CRAFT[key].cost) {
-        mat[k] = Math.max(CRAFT[key].cost[k] * needCount - haveCount, 0);
+        // 最歐公式 = 每次消耗 * (所需數量 - 目前數量) - 已有數量
+        mat[k] = Math.max(CRAFT[key].cost[k] * needCount - (haveCount || 0), 0);
       }
       return mat;
     }
@@ -619,7 +620,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
     // 初始化需求
     const need = {
       教皇認可: need教皇,
-      實習匠人的證明盾: need盾,
+      实習匠人的證明盾: need盾,
       傭兵隊長推薦書: need推薦,
       詛咒精華: 0,
       優級轉職信物: 0,
@@ -657,9 +658,9 @@ if (text === "/開啟通知" || text === "/關閉通知") {
 
     // 計算最歐材料
     for (const key of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚"]) {
-      const needed = Math.max(need[key] - (have[key] || 0), 0);
-      const best = calcMaterialBest(key, need[key], have[key] || 0);
-      need[key] = { worst: needed, best: best[Object.keys(best)[0]] || needed };
+      const worst = Math.max(need[key] - (have[key] || 0), 0);
+      const best = (CRAFT[key].cost[Object.keys(CRAFT[key].cost)[0]] || 1) * worst - (have[key] || 0);
+      need[key] = { worst: worst, best: Math.max(best, 0) };
     }
 
     // 對應符號（顏色）
@@ -710,6 +711,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
     });
     return;
   }
+
 }
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
