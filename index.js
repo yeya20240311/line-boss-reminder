@@ -550,8 +550,17 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
-if (args[0] === "/4轉" || args[0] === "/四轉") {
-  const raw = args[1];
+const text = event.message.text.trim();
+
+// 統一把全形空白換成半形
+const normalized = text.replace(/　/g, " ");
+const parts = normalized.split(" ");
+
+if (
+  parts[0] === "/4轉" ||
+  parts[0] === "/四轉"
+) {
+  const raw = parts[1];
   if (!raw) {
     await client.replyMessage(event.replyToken, {
       type: "text",
@@ -583,6 +592,10 @@ if (args[0] === "/4轉" || args[0] === "/四轉") {
     have墨水,
     have金幣
   ] = nums;
+
+  // ===== 後面維持你現在的計算邏輯（不用再動） =====
+}
+
 
   // 剩餘書本數
   const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
