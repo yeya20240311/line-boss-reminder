@@ -550,14 +550,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
-// 統一把全形空白換成半形
-const normalized = event.message.text.trim().replace(/　/g, " ");
-const parts = normalized.split(" ");
-
-if (
-  parts[0] === "/4轉" ||
-  parts[0] === "/四轉"
-) {
+if (parts[0] === "/4轉" || parts[0] === "/四轉") {
   const raw = parts[1];
   if (!raw) {
     await client.replyMessage(event.replyToken, {
@@ -590,6 +583,17 @@ if (
     have墨水,
     have金幣
   ] = nums;
+
+  // ===== calcMaterial 函數（最簡單版） =====
+  function calcMaterial(key, needCount, failCount) {
+    const mat = {};
+    if (!CRAFT[key]) return mat;
+    const tries = remainTry(CRAFT[key].maxFail, failCount);
+    for (const k in CRAFT[key].cost) {
+      mat[k] = (mat[k] || 0) + CRAFT[key].cost[k] * tries * needCount;
+    }
+    return mat;
+  }
 
   // 剩餘書本數
   const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
@@ -651,23 +655,24 @@ if (
     "金幣": "🟨",
   };
 
+  // 千分位格式化
+  function fmt(n) {
+    return n.toLocaleString();
+  }
+
   // 前三本書
   const bookLines = [
-    `${symbolMap["教皇認可"]} 教皇認可：${need教皇}`,
-    `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${need盾}`,
-    `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${need推薦}`,
+    `${symbolMap["教皇認可"]} 教皇認可：${fmt(need教皇)}`,
+    `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${fmt(need盾)}`,
+    `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${fmt(need推薦)}`,
   ];
 
   // 材料缺口（最非/最歐）
-  const matLines = [
-    "--------------------【最非】/【最歐】",
-  ];
-
+  const matLines = ["--------------------【最非】/【最歐】"];
   for (const mat of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"]) {
-    const miss = Math.max(need[mat] - (have[mat] || 0), 0);
-    const best = mat === "墨水晶" || mat === "金幣" ? need[mat].toLocaleString() : miss;
-    const worst = miss;
-    matLines.push(`${symbolMap[mat]} ${mat}：${worst} / ${best}`);
+    const worst = Math.max(need[mat] - (have[mat] || 0), 0);
+    const best = need[mat];
+    matLines.push(`${symbolMap[mat]} ${mat}：${fmt(worst)} / ${fmt(best)}`);
   }
 
   const textReply = `📘 四轉材料缺口\n\n${bookLines.join("\n")}\n${matLines.join("\n")}`;
