@@ -550,13 +550,14 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
-const text = event.message.text.trim();
-
 // 統一把全形空白換成半形
 const normalized = event.message.text.trim().replace(/　/g, " ");
 const parts = normalized.split(" ");
 
-if (parts[0] === "/4轉" || parts[0] === "/四轉") {
+if (
+  parts[0] === "/4轉" ||
+  parts[0] === "/四轉"
+) {
   const raw = parts[1];
   if (!raw) {
     await client.replyMessage(event.replyToken, {
@@ -590,7 +591,7 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     have金幣
   ] = nums;
 
-  // 計算剩餘書本
+  // 剩餘書本數
   const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
   const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
   const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
@@ -611,34 +612,15 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     金幣: FINAL_BOOK.金幣,
   };
 
-  // ===== 計算材料函數（最非 / 最歐） =====
-  function calcMaterial(bookName, needNum, failCount, mode = "worst") {
-    if (!CRAFT[bookName] || needNum <= 0) return {};
-    const maxFail = CRAFT[bookName].maxFail;
-    const tries = mode === "best" ? 1 : maxFail + 1;
-    const result = {};
-    for (const mat in CRAFT[bookName].cost) {
-      const per = CRAFT[bookName].cost[mat];
-      let total = needNum * tries * per;
-      if (mode === "worst") total -= failCount * per;
-      result[mat] = Math.max(total, 0);
-    }
-    return result;
-  }
+  // 計算材料（最非）
+  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
+  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
+  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
 
-  // 計算各書材料需求
-  const calc教皇最非 = calcMaterial("教皇認可", need教皇, fail教皇, "worst");
-  const calc盾最非 = calcMaterial("實習匠人的證明盾", need盾, fail盾, "worst");
-  const calc推薦最非 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦, "worst");
-
-  const calc教皇最歐 = calcMaterial("教皇認可", need教皇, fail教皇, "best");
-  const calc盾最歐 = calcMaterial("實習匠人的證明盾", need盾, fail盾, "best");
-  const calc推薦最歐 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦, "best");
-
-  // 累加材料到總需求
-  for (const mat in calc教皇最非) need[mat] = (need[mat] || 0) + calc教皇最非[mat];
-  for (const mat in calc盾最非) need[mat] = (need[mat] || 0) + calc盾最非[mat];
-  for (const mat in calc推薦最非) need[mat] = (need[mat] || 0) + calc推薦最非[mat];
+  // 累加材料
+  for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
+  for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
+  for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
 
   // 現有材料
   const have = {
@@ -653,35 +635,49 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     金幣: have金幣,
   };
 
-  // ===== 產生顯示表格 =====
-  const lines = [];
-  const formatSet = new Set(["金幣", "墨水晶"]);
+  // 對應符號（顏色）
+  const symbolMap = {
+    "教皇認可": "🟧",
+    "實習匠人的證明盾": "🟪",
+    "傭兵隊長推薦書": "🟪",
+    "詛咒精華": "🟪",
+    "優級轉職信物": "🟪",
+    "古代匠人的合金": "🟪",
+    "冰凍之淚": "🟪",
+    "轉職信物": "⚫",
+    "金屬殘片": "⚫",
+    "古代莎草紙": "🟦",
+    "墨水晶": "🟨",
+    "金幣": "🟨",
+  };
 
-  for (const k in need) {
-    const missing最非 = Math.max(need[k] - (have[k] || 0), 0);
-    const missing最歐 = (() => {
-      if (["教皇認可","實習匠人的證明盾","傭兵隊長推薦書"].includes(k)) {
-        return missing最非; // 這三個只顯示一個數字
-      }
-      const total = calcMaterial(k, 1, 0, "best")[k] || 0; // 1本最歐材料量
-      return total;
-    })();
-    const value = formatSet.has(k)
-      ? `${missing最非.toLocaleString()} / ${missing最歐.toLocaleString()}`
-      : `${missing最非} / ${missing最歐}`;
-    lines.push(`${k.padEnd(15, " ")} ${value}`);
+  // 前三本書
+  const bookLines = [
+    `${symbolMap["教皇認可"]} 教皇認可：${need教皇}`,
+    `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${need盾}`,
+    `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${need推薦}`,
+  ];
+
+  // 材料缺口（最非/最歐）
+  const matLines = [
+    "--------------------【最非】/【最歐】",
+  ];
+
+  for (const mat of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"]) {
+    const miss = Math.max(need[mat] - (have[mat] || 0), 0);
+    const best = mat === "墨水晶" || mat === "金幣" ? need[mat].toLocaleString() : miss;
+    const worst = miss;
+    matLines.push(`${symbolMap[mat]} ${mat}：${worst} / ${best}`);
   }
+
+  const textReply = `📘 四轉材料缺口\n\n${bookLines.join("\n")}\n${matLines.join("\n")}`;
 
   await client.replyMessage(event.replyToken, {
     type: "text",
-    text: `📘 四轉材料缺口\n\n${lines.join("\n")}`,
+    text: textReply,
   });
   return;
 }
-
-
-
-
 
 
 }
