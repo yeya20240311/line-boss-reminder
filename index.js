@@ -715,6 +715,7 @@ await client.replyMessage(event.replyToken, {
   text: textReply,
 });
 return;
+}
 
 }
 // ===== 啟動 =====
