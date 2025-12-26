@@ -644,9 +644,6 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     return;
   }
 }
-
-
-}
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
