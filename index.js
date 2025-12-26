@@ -669,8 +669,8 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
 
   // 千分位格式化
   function fmt(n) {
-    return n.toLocaleString();
-  }
+  return (typeof n === "number" ? n : 0).toLocaleString();
+}
 
   // 前三本書
   const bookLines = [
