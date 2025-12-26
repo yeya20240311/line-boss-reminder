@@ -556,167 +556,171 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
- if (parts[0] === "/4轉" || parts[0] === "/四轉") {
-    const raw = parts[1];
-    if (!raw) {
-      await client.replyMessage(event.replyToken, {
-        type: "text",
-        text: "❌ 格式錯誤，請先輸入 /4轉材料 查看說明",
-      });
-      return;
-    }
+if (parts[0] === "/4轉" || parts[0] === "/四轉") {
+  const raw = parts[1];
+  if (!raw) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 格式錯誤，請先輸入 /4轉材料 查看說明",
+    });
+    return;
+  }
 
-    const nums = raw.split(".").map(n => parseInt(n, 10) || 0);
-    if (nums.length !== 15) {
-      await client.replyMessage(event.replyToken, {
-        type: "text",
-        text: "❌ 數量不足，請確認是否輸入 15 個數字",
-      });
-      return;
-    }
+  const nums = raw.split(".").map(n => parseInt(n, 10) || 0);
+  if (nums.length !== 15) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 數量不足，請確認是否輸入 15 個數字",
+    });
+    return;
+  }
 
-    let [
-      have教皇, fail教皇,
-      have盾, fail盾,
-      have推薦, fail推薦,
-      have詛咒,
-      have優級,
-      have合金,
-      have冰淚,
-      have信物,
-      have殘片,
-      have莎草,
-      have墨水,
-      have金幣
-    ] = nums;
+  let [
+    have教皇, fail教皇,
+    have盾, fail盾,
+    have推薦, fail推薦,
+    have詛咒,
+    have優級,
+    have合金,
+    have冰淚,
+    have信物,
+    have殘片,
+    have莎草,
+    have墨水,
+    have金幣
+  ] = nums;
+
+  // ===== 計算失敗累積次數 =====
+  function remainTry(maxFail, failCount) {
+    return maxFail + 1 - failCount; // 最後一次必成功
+  }
 
   // ===== calcMaterial 函數（最非） =====
-function calcMaterial(key, needCount, failCount) {
-  const mat = {};
-  if (!CRAFT[key] || !CRAFT[key].cost) return mat;
-  const tries = remainTry(CRAFT[key].maxFail, failCount); // 計算失敗累積次數
-  for (const k in CRAFT[key].cost) {
-    mat[k] = (mat[k] || 0) + CRAFT[key].cost[k] * tries * needCount;
+  function calcMaterial(key, needCount, failCount) {
+    const mat = {};
+    if (!CRAFT[key] || !CRAFT[key].cost) return mat;
+    const tries = remainTry(CRAFT[key].maxFail, failCount); // 計算失敗累積次數
+    for (const k in CRAFT[key].cost) {
+      mat[k] = (mat[k] || 0) + CRAFT[key].cost[k] * tries * needCount;
+    }
+    return mat;
   }
-  return mat;
-}
 
-// ===== calcMaterialBest 函數（最歐） =====
-function calcMaterialBest(key, needCount, haveCount) {
-  const mat = {};
-  if (!CRAFT[key] || !CRAFT[key].cost) return mat;
-  for (const k in CRAFT[key].cost) {
-    // 最歐公式 = 每次消耗 * (所需數量 - 目前數量) - 已有數量
-    mat[k] = Math.max(CRAFT[key].cost[k] * needCount - (haveCount || 0), 0);
+  // ===== calcMaterialBest 函數（最歐） =====
+  function calcMaterialBest(key, needCount, haveCount) {
+    const mat = {};
+    if (!CRAFT[key] || !CRAFT[key].cost) return mat;
+    for (const k in CRAFT[key].cost) {
+      // 最歐公式 = 每次消耗 * (所需數量 - 目前數量) - 已有數量
+      mat[k] = Math.max(CRAFT[key].cost[k] * needCount - (haveCount || 0), 0);
+    }
+    return mat;
   }
-  return mat;
-}
 
-// 剩餘書本數
-const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
-const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
-const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
+  // 剩餘書本數
+  const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
+  const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
+  const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
 
-// 初始化需求
-const need = {
-  教皇認可: need教皇,
-  實習匠人的證明盾: need盾,
-  傭兵隊長推薦書: need推薦,
-  詛咒精華: 0,
-  優級轉職信物: 0,
-  古代匠人的合金: 0,
-  冰凍之淚: 0,
-  轉職信物: 0,
-  金屬殘片: 0,
-  古代莎草紙: 0,
-  墨水晶: FINAL_BOOK.墨水晶,
-  金幣: FINAL_BOOK.金幣,
-};
+  // 初始化需求
+  const need = {
+    教皇認可: need教皇,
+    實習匠人的證明盾: need盾,
+    傭兵隊長推薦書: need推薦,
+    詛咒精華: 0,
+    優級轉職信物: 0,
+    古代匠人的合金: 0,
+    冰凍之淚: 0,
+    轉職信物: 0,
+    金屬殘片: 0,
+    古代莎草紙: 0,
+    墨水晶: FINAL_BOOK.墨水晶,
+    金幣: FINAL_BOOK.金幣,
+  };
 
-// 計算材料（最非）
-const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
-const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
-const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
+  // 計算材料（最非）
+  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
+  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
+  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
 
-// 累加材料
-for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
-for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
-for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
+  // 累加材料
+  for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
+  for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
+  for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
 
-// 現有材料
-const have = {
-  詛咒精華: have詛咒,
-  優級轉職信物: have優級,
-  古代匠人的合金: have合金,
-  冰凍之淚: have冰淚,
-  轉職信物: have信物,
-  金屬殘片: have殘片,
-  古代莎草紙: have莎草,
-  墨水晶: have墨水,
-  金幣: have金幣,
-};
+  // 現有材料
+  const have = {
+    詛咒精華: have詛咒,
+    優級轉職信物: have優級,
+    古代匠人的合金: have合金,
+    冰凍之淚: have冰淚,
+    轉職信物: have信物,
+    金屬殘片: have殘片,
+    古代莎草紙: have莎草,
+    墨水晶: have墨水,
+    金幣: have金幣,
+  };
 
-// 計算最歐材料（最簡單公式）
-for (const key of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚"]) {
-  if (!CRAFT[key] || !CRAFT[key].cost) {
-    need[key] = { worst: 0, best: 0 };
-    continue;
+  // 計算最歐材料
+  for (const key of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚"]) {
+    if (!CRAFT[key] || !CRAFT[key].cost) {
+      need[key] = { worst: 0, best: 0 };
+      continue;
+    }
+    const worst = Math.max(need[key] - (have[key] || 0), 0);
+    const firstCost = CRAFT[key].cost[Object.keys(CRAFT[key].cost)[0]] || 1;
+    const best = Math.max(firstCost * worst - (have[key] || 0), 0);
+    need[key] = { worst, best };
   }
-  const worst = Math.max(need[key] - (have[key] || 0), 0);
-  const firstCost = CRAFT[key].cost[Object.keys(CRAFT[key].cost)[0]] || 1;
-  const best = Math.max(firstCost * worst - (have[key] || 0), 0);
-  need[key] = { worst, best };
-}
 
-// 對應符號（顏色）
-const symbolMap = {
-  "教皇認可": "🟧",
-  "實習匠人的證明盾": "🟪",
-  "傭兵隊長推薦書": "🟪",
-  "詛咒精華": "🟪",
-  "優級轉職信物": "🟪",
-  "古代匠人的合金": "🟪",
-  "冰凍之淚": "🟪",
-  "轉職信物": "⬛",
-  "金屬殘片": "⬛",
-  "古代莎草紙": "🟦",
-  "墨水晶": "🟨",
-  "金幣": "🟨",
-};
+  // 對應符號（顏色）
+  const symbolMap = {
+    "教皇認可": "🟧",
+    "實習匠人的證明盾": "🟪",
+    "傭兵隊長推薦書": "🟪",
+    "詛咒精華": "🟪",
+    "優級轉職信物": "🟪",
+    "古代匠人的合金": "🟪",
+    "冰凍之淚": "🟪",
+    "轉職信物": "⬛",
+    "金屬殘片": "⬛",
+    "古代莎草紙": "🟦",
+    "墨水晶": "🟨",
+    "金幣": "🟨",
+  };
 
-// 千分位格式化
-function fmt(n) {
-  return (typeof n === "number" ? n : 0).toLocaleString();
-}
-
-// 前三本書
-const bookLines = [
-  `${symbolMap["教皇認可"]} 教皇認可：${fmt(need教皇)}`,
-  `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${fmt(need盾)}`,
-  `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${fmt(need推薦)}`,
-];
-
-// 材料缺口（最非/最歐）
-const matLines = ["--------------【最非】/【最歐】"];
-for (const mat of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"]) {
-  if (need[mat] && typeof need[mat] === "object") {
-    matLines.push(`${symbolMap[mat]} ${mat}：${fmt(need[mat].worst)} / ${fmt(need[mat].best)}`);
-  } else {
-    const worst = Math.max(need[mat] - (have[mat] || 0), 0);
-    const best = need[mat];
-    matLines.push(`${symbolMap[mat]} ${mat}：${fmt(worst)} / ${fmt(best)}`);
+  // 千分位格式化
+  function fmt(n) {
+    return (typeof n === "number" ? n : 0).toLocaleString();
   }
-}
 
-const textReply = `📘 四轉材料缺口\n\n${bookLines.join("\n")}\n${matLines.join("\n")}`;
+  // 前三本書
+  const bookLines = [
+    `${symbolMap["教皇認可"]} 教皇認可：${fmt(need教皇)}`,
+    `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${fmt(need盾)}`,
+    `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${fmt(need推薦)}`,
+  ];
 
-await client.replyMessage(event.replyToken, {
-  type: "text",
-  text: textReply,
-});
-return;
-}
+  // 材料缺口（最非/最歐）
+  const matLines = ["--------------【最非】/【最歐】"];
+  for (const mat of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"]) {
+    if (need[mat] && typeof need[mat] === "object") {
+      matLines.push(`${symbolMap[mat]} ${mat}：${fmt(need[mat].worst)} / ${fmt(need[mat].best)}`);
+    } else {
+      const worst = Math.max(need[mat] - (have[mat] || 0), 0);
+      const best = need[mat];
+      matLines.push(`${symbolMap[mat]} ${mat}：${fmt(worst)} / ${fmt(best)}`);
+    }
+  }
 
+  const textReply = `📘 四轉材料缺口\n\n${bookLines.join("\n")}\n${matLines.join("\n")}`;
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: textReply,
+  });
+  return;
+   }
 }
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
