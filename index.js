@@ -164,8 +164,13 @@ app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 // ===== 指令處理 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
-    console.log(`🕐 心跳 / 指令觸發: ${dayjs().tz(TW_ZONE).format("YYYY/MM/DD HH:mm:ss")}`);
+    // 📌 新增這三行
   const text = event.message.text.trim();
+  const normalized = text.replace(/　/g, " "); // 全形空白換半形
+  const parts = normalized.split(" ");
+  
+  console.log(`🕐 心跳 / 指令觸發: ${dayjs().tz(TW_ZONE).format("YYYY/MM/DD HH:mm:ss")}`);
+
   const args = text.split(/\s+/);
 
 // /幫助
