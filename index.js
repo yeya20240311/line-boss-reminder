@@ -573,14 +573,10 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
       return;
     }
 
-    // 對應輸入數字
     let [
-      have教皇,
-      fail教皇,
-      have盾,
-      fail盾,
-      have推薦,
-      fail推薦,
+      have教皇, fail教皇,
+      have盾, fail盾,
+      have推薦, fail推薦,
       have詛咒,
       have優級,
       have合金,
@@ -592,10 +588,60 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
       have金幣
     ] = nums;
 
-    // ===== 千分位格式化函數 =====
-    function fmt(n) {
-      return (typeof n === "number" ? n : 0).toLocaleString();
+    // ===== calcMaterial 函數 =====
+    function calcMaterial(key, needCount, failCount) {
+      const mat = {};
+      if (!CRAFT[key]) return mat;
+      const tries = remainTry(CRAFT[key].maxFail, failCount);
+      for (const k in CRAFT[key].cost) {
+        mat[k] = (mat[k] || 0) + CRAFT[key].cost[k] * tries * needCount;
+      }
+      return mat;
     }
+
+    // 計算剩餘書本數
+    const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
+    const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
+    const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
+
+    // 初始化需求
+    const need = {
+      教皇認可: need教皇,
+      實習匠人的證明盾: need盾,
+      傭兵隊長推薦書: need推薦,
+      詛咒精華: 0,
+      優級轉職信物: 0,
+      古代匠人的合金: 0,
+      冰凍之淚: 0,
+      轉職信物: 0,
+      金屬殘片: 0,
+      古代莎草紙: 0,
+      墨水晶: FINAL_BOOK.墨水晶,
+      金幣: FINAL_BOOK.金幣,
+    };
+
+    // 計算材料（最非）
+    const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
+    const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
+    const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
+
+    // 累加材料
+    for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
+    for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
+    for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
+
+    // 現有材料
+    const have = {
+      詛咒精華: have詛咒,
+      優級轉職信物: have優級,
+      古代匠人的合金: have合金,
+      冰凍之淚: have冰淚,
+      轉職信物: have信物,
+      金屬殘片: have殘片,
+      古代莎草紙: have莎草,
+      墨水晶: have墨水,
+      金幣: have金幣,
+    };
 
     // 對應符號（顏色）
     const symbolMap = {
@@ -613,27 +659,25 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
       "金幣": "🟨",
     };
 
-    // ===== 前三本書 =====
+    // 千分位格式化
+    function fmt(n) {
+      return (typeof n === "number" && n > 0 ? n : 0).toLocaleString();
+    }
+
+    // 前三本書
     const bookLines = [
-      `${symbolMap["教皇認可"]} 教皇認可：${fmt(Math.max(FINAL_BOOK.教皇認可 - have教皇, 0))}`,
-      `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${fmt(Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0))}`,
-      `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${fmt(Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0))}`,
+      `${symbolMap["教皇認可"]} 教皇認可：${fmt(need教皇)}`,
+      `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${fmt(need盾)}`,
+      `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${fmt(need推薦)}`,
     ];
 
-    // ===== 材料缺口（最非 / 最歐） =====
-    // 直接使用表格公式數字或你傳入的實際數字
-    const matLines = [
-      "--------------【最非】/【最歐】",
-      `${symbolMap["詛咒精華"]} 詛咒精華：${fmt(224 - have詛咒)} / ${fmt(39)}`,
-      `${symbolMap["優級轉職信物"]} 優級轉職信物：${fmt(342 - have優級)} / ${fmt(46)}`,
-      `${symbolMap["古代匠人的合金"]} 古代匠人的合金：${fmt(125 - have合金)} / ${fmt(25)}`,
-      `${symbolMap["冰凍之淚"]} 冰凍之淚：${fmt(0 - have冰淚)} / ${fmt(0)}`,
-      `${symbolMap["轉職信物"]} 轉職信物：${fmt(8114 - have信物)} / ${fmt(1470)}`,
-      `${symbolMap["金屬殘片"]} 金屬殘片：${fmt(273 - have殘片)} / ${fmt(39)}`,
-      `${symbolMap["古代莎草紙"]} 古代莎草紙：${fmt(3970 - have莎草)} / ${fmt(400)}`,
-      `${symbolMap["墨水晶"]} 墨水晶：${fmt(6081 - have墨水)} / ${fmt(1050)}`,
-      `${symbolMap["金幣"]} 金幣：${fmt(178661474 - have金幣)} / ${fmt(35000000)}`,
-    ];
+    // 材料缺口（最非/最歐）
+    const matLines = ["--------------【最非】/【最歐】"];
+    for (const mat of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"]) {
+      const worst = Math.max(need[mat] - (have[mat] || 0), 0);
+      const best = need[mat];
+      matLines.push(`${symbolMap[mat]} ${mat}：${fmt(worst)} / ${fmt(best)}`);
+    }
 
     const textReply = `📘 四轉材料缺口\n\n${bookLines.join("\n")}\n${matLines.join("\n")}`;
 
