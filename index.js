@@ -553,13 +553,10 @@ if (text === "/開啟通知" || text === "/關閉通知") {
 const text = event.message.text.trim();
 
 // 統一把全形空白換成半形
-const normalized = text.replace(/　/g, " ");
+const normalized = event.message.text.trim().replace(/　/g, " ");
 const parts = normalized.split(" ");
 
-if (
-  parts[0] === "/4轉" ||
-  parts[0] === "/四轉"
-) {
+if (parts[0] === "/4轉" || parts[0] === "/四轉") {
   const raw = parts[1];
   if (!raw) {
     await client.replyMessage(event.replyToken, {
@@ -593,11 +590,7 @@ if (
     have金幣
   ] = nums;
 
-  // ===== 後面維持你現在的計算邏輯（不用再動） =====
-}
-
-
-  // 剩餘書本數
+  // 計算剩餘書本
   const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
   const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
   const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
@@ -618,15 +611,34 @@ if (
     金幣: FINAL_BOOK.金幣,
   };
 
-  // 計算材料（最非）
-  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
-  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
-  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
+  // ===== 計算材料函數（最非 / 最歐） =====
+  function calcMaterial(bookName, needNum, failCount, mode = "worst") {
+    if (!CRAFT[bookName] || needNum <= 0) return {};
+    const maxFail = CRAFT[bookName].maxFail;
+    const tries = mode === "best" ? 1 : maxFail + 1;
+    const result = {};
+    for (const mat in CRAFT[bookName].cost) {
+      const per = CRAFT[bookName].cost[mat];
+      let total = needNum * tries * per;
+      if (mode === "worst") total -= failCount * per;
+      result[mat] = Math.max(total, 0);
+    }
+    return result;
+  }
 
-  // 累加材料
-  for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
-  for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
-  for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
+  // 計算各書材料需求
+  const calc教皇最非 = calcMaterial("教皇認可", need教皇, fail教皇, "worst");
+  const calc盾最非 = calcMaterial("實習匠人的證明盾", need盾, fail盾, "worst");
+  const calc推薦最非 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦, "worst");
+
+  const calc教皇最歐 = calcMaterial("教皇認可", need教皇, fail教皇, "best");
+  const calc盾最歐 = calcMaterial("實習匠人的證明盾", need盾, fail盾, "best");
+  const calc推薦最歐 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦, "best");
+
+  // 累加材料到總需求
+  for (const mat in calc教皇最非) need[mat] = (need[mat] || 0) + calc教皇最非[mat];
+  for (const mat in calc盾最非) need[mat] = (need[mat] || 0) + calc盾最非[mat];
+  for (const mat in calc推薦最非) need[mat] = (need[mat] || 0) + calc推薦最非[mat];
 
   // 現有材料
   const have = {
@@ -641,22 +653,32 @@ if (
     金幣: have金幣,
   };
 
-  // 輸出
+  // ===== 產生顯示表格 =====
   const lines = [];
   const formatSet = new Set(["金幣", "墨水晶"]);
 
   for (const k in need) {
-    const missing = Math.max(need[k] - (have[k] || 0), 0);
-    const value = formatSet.has(k) ? missing.toLocaleString() : missing;
-    lines.push(`${k}：${value}`);
+    const missing最非 = Math.max(need[k] - (have[k] || 0), 0);
+    const missing最歐 = (() => {
+      if (["教皇認可","實習匠人的證明盾","傭兵隊長推薦書"].includes(k)) {
+        return missing最非; // 這三個只顯示一個數字
+      }
+      const total = calcMaterial(k, 1, 0, "best")[k] || 0; // 1本最歐材料量
+      return total;
+    })();
+    const value = formatSet.has(k)
+      ? `${missing最非.toLocaleString()} / ${missing最歐.toLocaleString()}`
+      : `${missing最非} / ${missing最歐}`;
+    lines.push(`${k.padEnd(15, " ")} ${value}`);
   }
 
   await client.replyMessage(event.replyToken, {
     type: "text",
-    text: `📘 四轉材料缺口（最慘情況）\n\n${lines.join("\n")}`,
+    text: `📘 四轉材料缺口\n\n${lines.join("\n")}`,
   });
   return;
 }
+
 
 
 
