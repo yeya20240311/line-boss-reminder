@@ -210,7 +210,7 @@ if (text === "/幫助") {
   return;
 }
 
-  if (text === "/4轉材料") {
+  if (["/4轉材料", "/四轉材料"].includes(text)) {
   await client.replyMessage(event.replyToken, {
     type: "text",
     text: `📘 四轉材料計算說明
@@ -550,7 +550,7 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
-if (args[0] === "/4轉") {
+if (args[0] === "/4轉" || args[0] === "/四轉") {
   const raw = args[1];
   if (!raw) {
     await client.replyMessage(event.replyToken, {
@@ -584,12 +584,12 @@ if (args[0] === "/4轉") {
     have金幣
   ] = nums;
 
-  // 計算剩餘要做的書本
+  // 剩餘書本數
   const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
   const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
   const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
 
-  // 初始化總需求
+  // 初始化需求
   const need = {
     教皇認可: need教皇,
     實習匠人的證明盾: need盾,
@@ -605,34 +605,17 @@ if (args[0] === "/4轉") {
     金幣: FINAL_BOOK.金幣,
   };
 
-  // ===== 計算材料函數（最慘情況） =====
-  function calcMaterial(bookName, needNum, failCount) {
-    if (!CRAFT[bookName]) return {};
-    const maxFail = CRAFT[bookName].maxFail;
-    const timesToSuccess = maxFail + 1; // 每本書最慘嘗試次數
-    const result = {};
-
-    for (const mat in CRAFT[bookName].cost) {
-      const perBook = CRAFT[bookName].cost[mat];
-      // 總需求 = (剩餘書本數 × 每本最大嘗試次數 × 每次消耗) - 已失敗消耗 - 現有材料
-      const total = needNum * timesToSuccess * perBook - failCount * perBook;
-      result[mat] = Math.max(total, 0);
-    }
-
-    return result;
-  }
-
-  // 計算各書材料需求
+  // 計算材料（最非）
   const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
   const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
   const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
 
-  // 累加到總需求
+  // 累加材料
   for (const mat in calc教皇) need[mat] = (need[mat] || 0) + calc教皇[mat];
   for (const mat in calc盾) need[mat] = (need[mat] || 0) + calc盾[mat];
   for (const mat in calc推薦) need[mat] = (need[mat] || 0) + calc推薦[mat];
 
-  // 扣掉現有材料
+  // 現有材料
   const have = {
     詛咒精華: have詛咒,
     優級轉職信物: have優級,
@@ -645,7 +628,7 @@ if (args[0] === "/4轉") {
     金幣: have金幣,
   };
 
-  // ===== 產生顯示文字 =====
+  // 輸出
   const lines = [];
   const formatSet = new Set(["金幣", "墨水晶"]);
 
@@ -661,6 +644,7 @@ if (args[0] === "/4轉") {
   });
   return;
 }
+
 
 
 
