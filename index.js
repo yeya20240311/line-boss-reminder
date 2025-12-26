@@ -164,14 +164,13 @@ app.get("/", (req, res) => res.send("LINE Boss Reminder Bot is running."));
 // ===== 指令處理 =====
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
-    // 📌 新增這三行
+
+  // 📌 新增這三行
   const text = event.message.text.trim();
   const normalized = text.replace(/　/g, " "); // 全形空白換半形
   const parts = normalized.split(" ");
-  
-  console.log(`🕐 心跳 / 指令觸發: ${dayjs().tz(TW_ZONE).format("YYYY/MM/DD HH:mm:ss")}`);
 
-  const args = text.split(/\s+/);
+  console.log(`🕐 心跳 / 指令觸發: ${dayjs().tz(TW_ZONE).format("YYYY/MM/DD HH:mm:ss")}`);
 
 // /幫助
 if (text === "/幫助") {
@@ -556,144 +555,94 @@ if (text === "/開啟通知" || text === "/關閉通知") {
 }
 
 if (parts[0] === "/4轉" || parts[0] === "/四轉") {
-  const raw = parts[1];
-  if (!raw) {
+    const raw = parts[1];
+    if (!raw) {
+      await client.replyMessage(event.replyToken, {
+        type: "text",
+        text: "❌ 格式錯誤，請先輸入 /4轉材料 查看說明",
+      });
+      return;
+    }
+
+    const nums = raw.split(".").map(n => parseInt(n, 10) || 0);
+    if (nums.length !== 15) {
+      await client.replyMessage(event.replyToken, {
+        type: "text",
+        text: "❌ 數量不足，請確認是否輸入 15 個數字",
+      });
+      return;
+    }
+
+    // 對應輸入數字
+    let [
+      have教皇,
+      fail教皇,
+      have盾,
+      fail盾,
+      have推薦,
+      fail推薦,
+      have詛咒,
+      have優級,
+      have合金,
+      have冰淚,
+      have信物,
+      have殘片,
+      have莎草,
+      have墨水,
+      have金幣
+    ] = nums;
+
+    // ===== 千分位格式化函數 =====
+    function fmt(n) {
+      return (typeof n === "number" ? n : 0).toLocaleString();
+    }
+
+    // 對應符號（顏色）
+    const symbolMap = {
+      "教皇認可": "🟧",
+      "實習匠人的證明盾": "🟪",
+      "傭兵隊長推薦書": "🟪",
+      "詛咒精華": "🟪",
+      "優級轉職信物": "🟪",
+      "古代匠人的合金": "🟪",
+      "冰凍之淚": "🟪",
+      "轉職信物": "⬛",
+      "金屬殘片": "⬛",
+      "古代莎草紙": "🟦",
+      "墨水晶": "🟨",
+      "金幣": "🟨",
+    };
+
+    // ===== 前三本書 =====
+    const bookLines = [
+      `${symbolMap["教皇認可"]} 教皇認可：${fmt(Math.max(FINAL_BOOK.教皇認可 - have教皇, 0))}`,
+      `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${fmt(Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0))}`,
+      `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${fmt(Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0))}`,
+    ];
+
+    // ===== 材料缺口（最非 / 最歐） =====
+    // 直接使用表格公式數字或你傳入的實際數字
+    const matLines = [
+      "--------------【最非】/【最歐】",
+      `${symbolMap["詛咒精華"]} 詛咒精華：${fmt(224 - have詛咒)} / ${fmt(39)}`,
+      `${symbolMap["優級轉職信物"]} 優級轉職信物：${fmt(342 - have優級)} / ${fmt(46)}`,
+      `${symbolMap["古代匠人的合金"]} 古代匠人的合金：${fmt(125 - have合金)} / ${fmt(25)}`,
+      `${symbolMap["冰凍之淚"]} 冰凍之淚：${fmt(0 - have冰淚)} / ${fmt(0)}`,
+      `${symbolMap["轉職信物"]} 轉職信物：${fmt(8114 - have信物)} / ${fmt(1470)}`,
+      `${symbolMap["金屬殘片"]} 金屬殘片：${fmt(273 - have殘片)} / ${fmt(39)}`,
+      `${symbolMap["古代莎草紙"]} 古代莎草紙：${fmt(3970 - have莎草)} / ${fmt(400)}`,
+      `${symbolMap["墨水晶"]} 墨水晶：${fmt(6081 - have墨水)} / ${fmt(1050)}`,
+      `${symbolMap["金幣"]} 金幣：${fmt(178661474 - have金幣)} / ${fmt(35000000)}`,
+    ];
+
+    const textReply = `📘 四轉材料缺口\n\n${bookLines.join("\n")}\n${matLines.join("\n")}`;
+
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: "❌ 格式錯誤，請先輸入 /4轉材料 查看說明",
+      text: textReply,
     });
     return;
   }
-
-  const nums = raw.split(".").map(n => parseInt(n, 10) || 0);
-  if (nums.length !== 15) {
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: "❌ 數量不足，請確認是否輸入 15 個數字",
-    });
-    return;
-  }
-
-  let [
-    have教皇, fail教皇,
-    have盾, fail盾,
-    have推薦, fail推薦,
-    have詛咒,
-    have優級,
-    have合金,
-    have冰淚,
-    have信物,
-    have殘片,
-    have莎草,
-    have墨水,
-    have金幣
-  ] = nums;
-
-  // ===== calcMaterial 函數（最非/最歐） =====
-  function calcMaterial(key, needCount, failCount) {
-    const mat = {};
-    if (!CRAFT[key]) return mat;
-    const tries = remainTry(CRAFT[key].maxFail, failCount);
-    for (const k in CRAFT[key].cost) {
-      mat[k] = {
-        worst: (mat[k]?.worst || 0) + CRAFT[key].cost[k] * tries * needCount, // 最非
-        best: (mat[k]?.best || 0) + CRAFT[key].cost[k] * needCount,           // 最歐
-      };
-    }
-    return mat;
-  }
-
-  // 剩餘書本數
-  const need教皇 = Math.max(FINAL_BOOK.教皇認可 - have教皇, 0);
-  const need盾 = Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0);
-  const need推薦 = Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0);
-
-  // 初始化需求
-  const need = {
-    教皇認可: { worst: need教皇, best: need教皇 },
-    實習匠人的證明盾: { worst: need盾, best: need盾 },
-    傭兵隊長推薦書: { worst: need推薦, best: need推薦 },
-    詛咒精華: { worst: 0, best: 0 },
-    優級轉職信物: { worst: 0, best: 0 },
-    古代匠人的合金: { worst: 0, best: 0 },
-    冰凍之淚: { worst: 0, best: 0 },
-    轉職信物: { worst: 0, best: 0 },
-    金屬殘片: { worst: 0, best: 0 },
-    古代莎草紙: { worst: 0, best: FINAL_BOOK.古代莎草紙 },
-    墨水晶: { worst: 0, best: FINAL_BOOK.墨水晶 },
-    金幣: { worst: 0, best: FINAL_BOOK.金幣 },
-  };
-
-  // 計算材料（最非/最歐）
-  const calc教皇 = calcMaterial("教皇認可", need教皇, fail教皇);
-  const calc盾 = calcMaterial("實習匠人的證明盾", need盾, fail盾);
-  const calc推薦 = calcMaterial("傭兵隊長推薦書", need推薦, fail推薦);
-
-  // 累加材料
-  for (const mat of [calc教皇, calc盾, calc推薦]) {
-    for (const k in mat) {
-      need[k] = need[k] || { worst: 0, best: 0 };
-      need[k].worst += mat[k].worst;
-      need[k].best += mat[k].best;
-    }
-  }
-
-  // 現有材料
-  const have = {
-    詛咒精華: have詛咒,
-    優級轉職信物: have優級,
-    古代匠人的合金: have合金,
-    冰凍之淚: have冰淚,
-    轉職信物: have信物,
-    金屬殘片: have殘片,
-    古代莎草紙: have莎草,
-    墨水晶: have墨水,
-    金幣: have金幣,
-  };
-
-  // 對應符號（顏色）
-  const symbolMap = {
-    "教皇認可": "🟧",
-    "實習匠人的證明盾": "🟪",
-    "傭兵隊長推薦書": "🟪",
-    "詛咒精華": "🟪",
-    "優級轉職信物": "🟪",
-    "古代匠人的合金": "🟪",
-    "冰凍之淚": "🟪",
-    "轉職信物": "⬛",
-    "金屬殘片": "⬛",
-    "古代莎草紙": "🟦",
-    "墨水晶": "🟨",
-    "金幣": "🟨",
-  };
-
-  // 千分位格式化
-  function fmt(n) {
-  return (typeof n === "number" ? n : 0).toLocaleString();
-}
-
-  // 前三本書
-  const bookLines = [
-    `${symbolMap["教皇認可"]} 教皇認可：${fmt(need教皇.worst)}`,
-    `${symbolMap["實習匠人的證明盾"]} 實習匠人的證明盾：${fmt(need盾.worst)}`,
-    `${symbolMap["傭兵隊長推薦書"]} 傭兵隊長推薦書：${fmt(need推薦.worst)}`,
-  ];
-
-  // 材料缺口（最非/最歐）
-  const matLines = ["--------------【最非】/【最歐】"];
-  for (const mat of ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"]) {
-    const worst = Math.max((need[mat]?.worst || 0) - (have[mat] || 0), 0);
-    const best = need[mat]?.best || 0;
-    matLines.push(`${symbolMap[mat]} ${mat}：${fmt(worst)} / ${fmt(best)}`);
-  }
-
-  const textReply = `📘 四轉材料缺口\n\n${bookLines.join("\n")}\n${matLines.join("\n")}`;
-
-  await client.replyMessage(event.replyToken, {
-    type: "text",
-    text: textReply,
-  });
-  return;
 }
 
 
