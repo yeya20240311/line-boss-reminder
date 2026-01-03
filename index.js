@@ -665,17 +665,25 @@ if (parts[0] === "/4轉" || parts[0] === "/四轉") {
     const cfg = CRAFT[book];
     const failCount = failMap[book] || 0;
 
-    for (const mat in cfg.cost) {
-      const per = cfg.cost[mat];
+// 最非嘗試次數（失敗次數只影響一次）
+const worstTryCount =
+  need === 0
+    ? 0
+    : (need * cfg.worstTry) - failCount;
 
-      // 最歐：一次成功
-      best[mat] += per * need;
+// 防呆：不可能為負
+const safeWorstTry = Math.max(worstTryCount, 0);
 
-      // 最非：最慘流程 − 已失敗消耗
-      worst[mat] +=
-        (need * per * cfg.worstTry) -
-        (failCount * per);
-    }
+for (const mat in cfg.cost) {
+  const per = cfg.cost[mat];
+
+  // 最歐：每顆一次成功
+  best[mat] += per * need;
+
+  // 最非：用「嘗試次數」乘材料成本
+  worst[mat] += per * safeWorstTry;
+}
+
   }
 
   // ===== 四轉書本體固定成本 =====
