@@ -995,7 +995,7 @@ best.金幣  += (FINAL_BOOK.金幣 / goldBag) * (marketPrice["金幣"] || 0);
   return;
 }
 
-
+}
   
   }
 // ===== 啟動 =====
