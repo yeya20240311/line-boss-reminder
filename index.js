@@ -837,7 +837,7 @@ if (mat === "詛咒精華") {
   return;
 }
 
-// ===== 新增 /4轉鑽 /四轉鑽（只做 × 交易所價格） =====
+// ===== /4轉鑽 /四轉鑽（含總和） =====
 if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   const raw = parts[1];
   if (!raw) {
@@ -900,7 +900,6 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
       }
     });
 
-    // 確保金幣價格存在
     if (!marketPrice["金幣"]) marketPrice["金幣"] = 70000;
   } catch (err) {
     console.error("❌ 交易所價格抓取錯誤：", err);
@@ -913,11 +912,14 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
 
   // ===== 計算鑽石數量（原數量 × 單價） =====
   const worst = {}, best = {};
+  let totalWorst = 0, totalBest = 0; // <-- 先在這裡宣告
   for (const mat in mats) {
     const [w, b] = mats[mat];
     const price = marketPrice[mat] || 0;
     worst[mat] = Math.round(w * price);
     best[mat] = Math.round(b * price);
+    totalWorst += worst[mat];
+    totalBest += best[mat];
   }
 
   // ===== 回傳文字格式 =====
@@ -941,7 +943,6 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
 }
-
 
 
   
