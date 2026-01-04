@@ -934,7 +934,9 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
 ⬛ 金屬殘片：${fmt(worst["金屬殘片"])} / ${fmt(best["金屬殘片"])}
 🟦 古代莎草紙：${fmt(worst["古代莎草紙"])} / ${fmt(best["古代莎草紙"])}
 🟨 墨水晶：${fmt(worst["墨水晶"])} / ${fmt(best["墨水晶"])}
-🟨 金幣：${fmt(worst["金幣"])} / ${fmt(best["金幣"])}`;
+🟨 金幣：${fmt(worst["金幣"])} / ${fmt(best["金幣"])}
+
+💎 總計鑽石：${fmt(totalWorst)} / ${fmt(totalBest)}`;
 
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
