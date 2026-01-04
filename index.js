@@ -925,30 +925,30 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     const failCount = failMap[book] || 0;
     const worstTry = Math.max(need * cfg.worstTry - failCount, 0);
 
-    for (const mat in cfg.cost) {
-      const per = cfg.cost[mat];
+for (const mat in cfg.cost) {
+  const per = cfg.cost[mat];
 
-      // 最歐：成功一次即可
-      best[mat] += per * need * (marketPrice[mat] || 0);
+  // 最歐：成功一次即可
+  best[mat] += per * need * (marketPrice[mat] || 0);
 
-      // 最非：計算失敗退料（只有詛咒精華退1顆，其餘直接乘安全次數）
-      if (mat === "詛咒精華") {
-        const successCount = need;
-        const failTimes = Math.max(worstTry - successCount, 0);
-        worst[mat] += ((successCount * per) + (failTimes * (per -1))) * (marketPrice[mat] || 0);
-    } else if (mat === "金幣") {
-  const goldBag = 70000;
-  // 最非：只計算製作失敗次數消耗的金幣
-  worst[mat] += ((worstTry - need) * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
-  // 最歐：一次成功消耗的金幣（不含固定書本成本）
-  best[mat]  += (need * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
-}
-      } else {
-        worst[mat] += per * worstTry * (marketPrice[mat] || 0);
-      }
-    }
+  // 最非：計算失敗退料（只有詛咒精華退1顆，其餘直接乘安全次數）
+  if (mat === "詛咒精華") {
+    const successCount = need;
+    const failTimes = Math.max(worstTry - successCount, 0);
+    worst[mat] += ((successCount * per) + (failTimes * (per -1))) * (marketPrice[mat] || 0);
+
+  } else if (mat === "金幣") {
+    const goldBag = 70000;
+    // 最非：只計算製作失敗次數消耗的金幣
+    worst[mat] += ((worstTry - need) * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
+    // 最歐：一次成功消耗的金幣（不含固定書本成本）
+    best[mat]  += (need * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
+
+  } else {
+    worst[mat] += per * worstTry * (marketPrice[mat] || 0);
   }
- }
+} // <- 這裡是 for 的閉合
+
   // ===== 四轉書固定成本 =====
   worst.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
   best.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
