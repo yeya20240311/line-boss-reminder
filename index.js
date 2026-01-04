@@ -883,36 +883,9 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
 
   // ===== 製作表（最慘第 N 次必成功）=====
   const CRAFT = {
-    教皇認可: {
-      worstTry: 6,
-      cost: {
-        詛咒精華: 5,
-        優級轉職信物: 8,
-        轉職信物: 10,
-        墨水晶: 20,
-        金幣: 1_000_000,
-      },
-    },
-    實習匠人的證明盾: {
-      worstTry: 11,
-      cost: {
-        古代匠人的合金: 5,
-        冰凍之淚: 5,
-        金屬殘片: 3,
-        墨水晶: 30,
-        金幣: 450_000,
-      },
-    },
-    傭兵隊長推薦書: {
-      worstTry: 16,
-      cost: {
-        古代莎草紙: 10,
-        轉職信物: 20,
-        金屬殘片: 3,
-        墨水晶: 10,
-        金幣: 200_000,
-      },
-    },
+    教皇認可: { worstTry: 6, cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10, 墨水晶: 20, 金幣: 1_000_000 } },
+    實習匠人的證明盾: { worstTry: 11, cost: { 古代匠人的合金: 5, 冰凍之淚: 5, 金屬殘片: 3, 墨水晶: 30, 金幣: 450_000 } },
+    傭兵隊長推薦書: { worstTry: 16, cost: { 古代莎草紙: 10, 轉職信物: 20, 金屬殘片: 3, 墨水晶: 10, 金幣: 200_000 } },
   };
 
   // ===== 尚需成功數 =====
@@ -922,24 +895,15 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     傭兵隊長推薦書: Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0),
   };
 
-  const worst = {};
-  const best = {};
-  const mats = [
-    "詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚",
-    "轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"
-  ];
-  mats.forEach(m => {
-    worst[m] = 0;
-    best[m] = 0;
-  });
+  // ===== 初始化 =====
+  const mats = ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚",
+                "轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"];
+  const worst = {}, best = {};
+  mats.forEach(m => { worst[m] = 0; best[m] = 0; });
 
-  // ===== 核心計算（最非 / 最歐）=====
-  const failMap = {
-    教皇認可: fail教皇,
-    實習匠人的證明盾: fail盾,
-    傭兵隊長推薦書: fail推薦,
-  };
+  const failMap = { 教皇認可: fail教皇, 實習匠人的證明盾: fail盾, 傭兵隊長推薦書: fail推薦 };
 
+  // ===== 核心計算 =====
   for (const book in needBook) {
     const need = needBook[book];
     if (need <= 0) continue;
@@ -948,58 +912,51 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     const failCount = failMap[book] || 0;
 
     // 最非嘗試次數（失敗次數只影響一次）
-    const worstTryCount =
-      need === 0
-        ? 0
-        : (need * cfg.worstTry) - failCount;
-
-    const safeWorstTry = Math.max(worstTryCount, 0);
+    const worstTryCount = Math.max(need * cfg.worstTry - failCount, 0);
 
     for (const mat in cfg.cost) {
       const per = cfg.cost[mat];
 
       if (mat === "詛咒精華") {
         const successCount = need;
-        const failTimes = Math.max(safeWorstTry - successCount, 0);
+        const failTimes = Math.max(worstTryCount - successCount, 0);
         worst[mat] += (successCount * per) + (failTimes * (per - 1));
         best[mat] += per * need;
-      } else if (mat === "墨水晶" || mat === "金幣") {
-        // 墨水晶 & 金幣計算方式相同
-        worst[mat] += per * safeWorstTry;
+
+      } else if (mat === "墨水晶") {
+        worst[mat] += per * worstTryCount;
         best[mat]  += per * need;
+
+      } else if (mat === "金幣") {
+        const goldBag = 70000;
+        worst[mat] += (per * worstTryCount) / goldBag;
+        best[mat]  += (per * need) / goldBag;
+
       } else {
-        worst[mat] += per * safeWorstTry;
+        worst[mat] += per * worstTryCount;
         best[mat]  += per * need;
       }
     }
   }
 
-  // ===== 四轉書本體固定成本 =====
+  // ===== 四轉書固定成本 =====
   worst.墨水晶 += FINAL_BOOK.墨水晶;
   best.墨水晶 += FINAL_BOOK.墨水晶;
-  worst.金幣 += FINAL_BOOK.金幣;
-  best.金幣  += FINAL_BOOK.金幣;
+  worst.金幣 += FINAL_BOOK.金幣 / 70000; // 換算成沙金袋
+  best.金幣  += FINAL_BOOK.金幣 / 70000;
 
   // ===== 扣掉現有材料 =====
-  const have = {
-    詛咒精華: have詛咒,
-    優級轉職信物: have優級,
-    古代匠人的合金: have合金,
-    冰凍之淚: have冰淚,
-    轉職信物: have信物,
-    金屬殘片: have殘片,
-    古代莎草紙: have莎草,
-    墨水晶: have墨水,
-    金幣: have金幣,
-  };
+  const have = { 詛咒精華: have詛咒, 優級轉職信物: have優級, 古代匠人的合金: have合金,
+                 冰凍之淚: have冰淚, 轉職信物: have信物, 金屬殘片: have殘片,
+                 古代莎草紙: have莎草, 墨水晶: have墨水, 金幣: have金幣 / 70000 };
 
-  for (const k in have) {
+  mats.forEach(k => {
     worst[k] = Math.max(worst[k] - have[k], 0);
-    best[k] = Math.max(best[k] - have[k], 0);
-  }
+    best[k]  = Math.max(best[k] - have[k], 0);
+  });
 
-  const fmt = n => n.toLocaleString();
-
+  // ===== 回傳訊息 =====
+  const fmt = n => n.toLocaleString(undefined, {maximumFractionDigits:2});
   const reply = `📘 四轉材料缺口
 
 🟧 教皇認可：${fmt(needBook.教皇認可)}
@@ -1017,16 +974,10 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
 🟨 墨水晶：${fmt(worst.墨水晶)} / ${fmt(best.墨水晶)}
 🟨 金幣（換沙金袋）：${fmt(worst.金幣)} / ${fmt(best.金幣)}`;
 
-  await client.replyMessage(event.replyToken, {
-    type: "text",
-    text: reply,
-  });
+  await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
-}
-}
-}
-  
-  }
+} // /4轉鑽 if 結束
+
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
