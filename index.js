@@ -173,6 +173,7 @@ async function handleEvent(event) {
   console.log(`🕐 心跳 / 指令觸發: ${dayjs().tz(TW_ZONE).format("YYYY/MM/DD HH:mm:ss")}`);
 const args = text.split(/\s+/);
 
+
   
 // /幫助
 if (text === "/幫助") {
@@ -215,6 +216,51 @@ if (text === "/幫助") {
   });
   return;
 }
+
+// ===== 🔹 新增交易所功能 🔹 =====
+if (args[0] === "/交易所") {
+
+  // 1️⃣ 只輸入 /交易所 → 顯示清單
+  if (args.length === 1) {
+    const rows = await getMarketRows();
+    const list = rows
+      .filter(r => r[0] && r[1] !== undefined)
+      .map(r => `${r[0]}：${r[1]} 💎`)
+      .join("\n");
+
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: `📦 交易所最低價\n━━━━━━━━━━━\n${list || "尚無資料"}`,
+    });
+    return;
+  }
+
+  // 2️⃣ /交易所 新增 材料
+  if (args[1] === "新增" && args.length >= 3) {
+    const name = args.slice(2).join(" ");
+    const msg = await updateMarket(name);
+    await client.replyMessage(event.replyToken, { type: "text", text: msg });
+    return;
+  }
+
+  // 3️⃣ /交易所 材料 價格
+  if (args.length >= 3) {
+    const price = parseFloat(args.at(-1));
+    if (isNaN(price)) {
+      await client.replyMessage(event.replyToken, {
+        type: "text",
+        text: "❌ 價格格式錯誤",
+      });
+      return;
+    }
+
+    const name = args.slice(1, -1).join(" ");
+    const msg = await updateMarket(name, price);
+    await client.replyMessage(event.replyToken, { type: "text", text: msg });
+    return;
+  }
+}
+// ===== 🔹 新增交易所功能結束 🔹 =====
 
   if (["/4轉材料", "/四轉材料"].includes(text)) {
   await client.replyMessage(event.replyToken, {
@@ -556,6 +602,53 @@ if (text === "/開啟通知" || text === "/關閉通知") {
   return;
 }
 
+// ===== 交易所功能 =====
+const MARKET_RANGE = `${SHEET_NAME}!J2:K`;
+
+async function getMarketRows() {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: MARKET_RANGE,
+  });
+  return res.data.values || [];
+}
+
+async function updateMarket(name, price = null) {
+  const rows = await getMarketRows();
+
+  // 找材料是否存在
+  const idx = rows.findIndex(r => r[0] === name);
+
+  // 更新價格
+  if (idx !== -1 && price !== null) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${SHEET_NAME}!K${idx + 2}`,
+      valueInputOption: "USER_ENTERED",
+      resource: { values: [[price]] },
+    });
+    return `✅ 已更新 ${name} 價格為 ${price}`;
+  }
+
+  // 新增（插在金幣下面）
+  if (idx === -1) {
+    const goldIdx = rows.findIndex(r => r[0] === "金幣");
+    const insertRow = goldIdx !== -1 ? goldIdx + 3 : rows.length + 2;
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: `${SHEET_NAME}!J${insertRow}:K${insertRow}`,
+      valueInputOption: "USER_ENTERED",
+      resource: { values: [[name, price ?? 0]] },
+    });
+
+    return `✅ 已新增交易所商品：${name}`;
+  }
+
+  return `⚠️ 操作失敗`;
+}
+
+  
 if (parts[0] === "/4轉" || parts[0] === "/四轉") {
   const raw = parts[1];
   if (!raw) {
@@ -745,6 +838,136 @@ if (mat === "詛咒精華") {
   return;
 }
 
+if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
+  const raw = parts[1];
+  if (!raw) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 請輸入 /4轉鑽 數字.數字.數字（共 15 個）",
+    });
+    return;
+  }
+
+  const nums = raw.split(".").map(n => parseInt(n, 10) || 0);
+  if (nums.length !== 15) {
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 請確認已輸入 15 個數字（共 15 個）",
+    });
+    return;
+  }
+
+  const [
+    have教皇, fail教皇,
+    have盾, fail盾,
+    have推薦, fail推薦,
+    have詛咒,
+    have優級,
+    have合金,
+    have冰淚,
+    have信物,
+    have殘片,
+    have莎草,
+    have墨水,
+    have金幣
+  ] = nums;
+
+  const FINAL_BOOK = {
+    教皇認可: 15,
+    實習匠人的證明盾: 15,
+    傭兵隊長推薦書: 40,
+    墨水晶: 500,
+    金幣: 50_000_000,
+  };
+
+  const CRAFT = {
+    教皇認可: { worstTry: 6, cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10, 墨水晶: 20, 金幣: 1_000_000 } },
+    實習匠人的證明盾: { worstTry: 11, cost: { 古代匠人的合金: 5, 冰凍之淚: 5, 金屬殘片: 3, 墨水晶: 30, 金幣: 450_000 } },
+    傭兵隊長推薦書: { worstTry: 16, cost: { 古代莎草紙: 10, 轉職信物: 20, 金屬殘片: 3,墨水晶: 10, 金幣: 200_000 } },
+  };
+
+  // 計算缺口
+  const needBook = {
+    教皇認可: Math.max(FINAL_BOOK.教皇認可 - have教皇, 0),
+    實習匠人的證明盾: Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0),
+    傭兵隊長推薦書: Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0),
+  };
+
+  const failMap = { 教皇認可: fail教皇, 實習匠人的證明盾: fail盾, 傭兵隊長推薦書: fail推薦 };
+
+  const worst = {}, best = {};
+  const mats = ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"];
+  mats.forEach(m => { worst[m]=0; best[m]=0; });
+
+  // 核心計算最非 / 最歐
+  for (const book in needBook) {
+    const need = needBook[book];
+    if (need <= 0) continue;
+    const cfg = CRAFT[book];
+    const failCount = failMap[book] || 0;
+    const worstTryCount = Math.max(need*cfg.worstTry - failCount,0);
+
+    for (const mat in cfg.cost) {
+      const per = cfg.cost[mat];
+      best[mat] += per * need;
+
+      if(mat==="詛咒精華") {
+        const success = need;
+        const failTimes = Math.max(worstTryCount-success,0);
+        worst[mat] += (success*per) + (failTimes*(per-1));
+      } else {
+        worst[mat] += per * worstTryCount;
+      }
+    }
+  }
+
+  // 四轉固定成本
+  worst.墨水晶 += FINAL_BOOK.墨水晶;
+  best.墨水晶 += FINAL_BOOK.墨水晶;
+  worst.金幣 += FINAL_BOOK.金幣;
+  best.金幣 += FINAL_BOOK.金幣;
+
+  // ===== 計算鑽石價格 =====
+  const marketRows = await getMarketRows();
+  const market = {};
+  marketRows.forEach(r => { const [n,p]=r; market[n]=parseFloat(p)||100; });
+
+  let worstDiamond=0, bestDiamond=0;
+  mats.forEach(m=>{
+    if(m==="金幣") return;
+    const price = market[m]||100;
+    worstDiamond += worst[m]*price;
+    bestDiamond += best[m]*price;
+  });
+
+  // 金幣計算沙金袋
+  const sandBagUnit=70000, sandBagPrice=0.9;
+  const worstBag = Math.ceil(worst.金幣/sandBagUnit);
+  const bestBag = Math.ceil(best.金幣/sandBagUnit);
+  worstDiamond += worstBag*sandBagPrice;
+  bestDiamond += bestBag*sandBagPrice;
+
+  // ===== 回覆訊息 =====
+  const fmt=n=>n.toLocaleString();
+  const diamondEmoji = "💎";
+
+  let reply = `🟧 教皇認可：${needBook.教皇認可} 🟪 實習匠人的證明盾：${needBook.實習匠人的證明盾} 🟪 傭兵隊長推薦書：${needBook.傭兵隊長推薦書} -------------- 【最非】 / 【最歐】\n`;
+  reply += `🟪 詛咒精華：${fmt(worst.詛咒精華)} / ${fmt(best.詛咒精華)}\n`;
+  reply += `🟪 優級轉職信物：${fmt(worst.優級轉職信物)} / ${fmt(best.優級轉職信物)}\n`;
+  reply += `🟪 古代匠人的合金：${fmt(worst.古代匠人的合金)} / ${fmt(best.古代匠人的合金)}\n`;
+  reply += `🟪 冰凍之淚：${fmt(worst.冰凍之淚)} / ${fmt(best.冰凍之淚)}\n`;
+  reply += `⬛ 轉職信物：${fmt(worst.轉職信物)} / ${fmt(best.轉職信物)}\n`;
+  reply += `⬛ 金屬殘片：${fmt(worst.金屬殘片)} / ${fmt(best.金屬殘片)}\n`;
+  reply += `🟦 古代莎草紙：${fmt(worst.古代莎草紙)} / ${fmt(best.古代莎草紙)}\n`;
+  reply += `🟨 墨水晶：${fmt(worst.墨水晶)} / ${fmt(best.墨水晶)}\n`;
+  reply += `🟨 金幣：${fmt(worst.金幣)} / ${fmt(best.金幣)}\n`;
+  reply += `最非所需鑽石 ${fmt(Math.round(worstDiamond))} ${diamondEmoji} 最歐所需鑽石 ${fmt(Math.round(bestDiamond))} ${diamondEmoji}`;
+
+  await client.replyMessage(event.replyToken,{ type:"text", text:reply });
+  return;
+}
+
+  
   }
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
