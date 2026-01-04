@@ -964,7 +964,7 @@ if (args[0] === "/4轉鑽") {
   return;
 }
 
-
+}
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
