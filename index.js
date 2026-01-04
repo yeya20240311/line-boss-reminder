@@ -963,17 +963,18 @@ const fmt = n => n.toLocaleString();
 
 const reply = `💎 四轉材料所缺鑽石
 --------------【最非】 / 【最歐】
-🟪 詛咒精華：${fmt(worst["詛咒精華"])} / ${fmt(best["詛咒精華"])}
-🟪 優級轉職信物：${fmt(worst["優級轉職信物"])} / ${fmt(best["優級轉職信物"])}
-🟪 古代匠人的合金：${fmt(worst["古代匠人的合金"])} / ${fmt(best["古代匠人的合金"])}
-🟪 冰凍之淚：${fmt(worst["冰凍之淚"])} / ${fmt(best["冰凍之淚"])}
-⬛ 轉職信物：${fmt(worst["轉職信物"])} / ${fmt(best["轉職信物"])}
-⬛ 金屬殘片：${fmt(worst["金屬殘片"])} / ${fmt(best["金屬殘片"])}
-🟦 古代莎草紙：${fmt(worst["古代莎草紙"])} / ${fmt(best["古代莎草紙"])}
-🟨 墨水晶：${fmt(worst["墨水晶"])} / ${fmt(best["墨水晶"])}
-🟨 金幣（換沙金袋）：${fmt(worst["金幣"])} / ${fmt(best["金幣"])}
+🟪 詛咒精華：💎${fmt(worst["詛咒精華"] * (await getExlPrice("詛咒精華")))} / 💎${fmt(best["詛咒精華"] * (await getExlPrice("詛咒精華")))}
+🟪 優級轉職信物：💎${fmt(worst["優級轉職信物"] * (await getExlPrice("優級轉職信物")))} / 💎${fmt(best["優級轉職信物"] * (await getExlPrice("優級轉職信物")))}
+🟪 古代匠人的合金：💎${fmt(worst["古代匠人的合金"] * (await getExlPrice("古代匠人的合金")))} / 💎${fmt(best["古代匠人的合金"] * (await getExlPrice("古代匠人的合金")))}
+🟪 冰凍之淚：💎${fmt(worst["冰凍之淚"] * (await getExlPrice("冰凍之淚")))} / 💎${fmt(best["冰凍之淚"] * (await getExlPrice("冰凍之淚")))}
+⬛ 轉職信物：💎${fmt(worst["轉職信物"] * (await getExlPrice("轉職信物")))} / 💎${fmt(best["轉職信物"] * (await getExlPrice("轉職信物")))}
+⬛ 金屬殘片：💎${fmt(worst["金屬殘片"] * (await getExlPrice("金屬殘片")))} / 💎${fmt(best["金屬殘片"] * (await getExlPrice("金屬殘片")))}
+🟦 古代莎草紙：💎${fmt(worst["古代莎草紙"] * (await getExlPrice("古代莎草紙")))} / 💎${fmt(best["古代莎草紙"] * (await getExlPrice("古代莎草紙")))}
+🟨 墨水晶：💎${fmt(worst["墨水晶"] * (await getExlPrice("墨水晶")))} / 💎${fmt(best["墨水晶"] * (await getExlPrice("墨水晶")))}
+🟨 金幣（換沙金袋）：💎${fmt(worst["金幣"] * (await getExlPrice("金幣")))} / 💎${fmt(best["金幣"] * (await getExlPrice("金幣")))}
 --------------
 💎 總鑽石：${fmt(worstExl)} / ${fmt(bestExl)}`;
+
 
 
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
