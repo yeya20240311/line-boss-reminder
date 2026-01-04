@@ -956,10 +956,10 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
     return total;
   }
 
-  const worstExl = await calcExlCost(worst);
-  const bestExl = await calcExlCost(best);
+const worstExl = await calcExlCost(worst);
+const bestExl  = await calcExlCost(best);
 
-  const fmt = n => n.toLocaleString();
+const fmt = n => n.toLocaleString();
 
 const reply = `💎 四轉材料所缺鑽石
 --------------【最非】 / 【最歐】
@@ -973,7 +973,8 @@ const reply = `💎 四轉材料所缺鑽石
 🟨 墨水晶：${fmt(worst["墨水晶"])} / ${fmt(best["墨水晶"])}
 🟨 金幣（換沙金袋）：${fmt(worst["金幣"])} / ${fmt(best["金幣"])}
 --------------
-💎 總鑽石：${fmt(totalWorst)} / ${fmt(totalBest)}`;
+💎 總鑽石：${fmt(worstExl)} / ${fmt(bestExl)}`;
+
 
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
