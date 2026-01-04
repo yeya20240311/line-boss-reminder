@@ -948,7 +948,7 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
       }
     }
   }
-
+ }
   // ===== 四轉書固定成本 =====
   worst.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
   best.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
