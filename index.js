@@ -884,9 +884,6 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
     傭兵隊長推薦書: Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0),
   };
 
-  const mats = ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚",
-                "轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"];
-
   const worst = {}, best = {};
   mats.forEach(m => { worst[m]=0; best[m]=0; });
 
