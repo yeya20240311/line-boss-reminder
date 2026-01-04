@@ -962,7 +962,32 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
 ⬛ 轉職信物：💎${fmt(dWorst["轉職信物"])} / 💎${fmt(dBest["轉職信物"])}
 🟦 古代莎草紙：💎${fmt(dWorst["古代莎草紙"])} / 💎${fmt(dBest["古代莎草紙"])}
 🟨 墨水晶：💎${fmt(dWorst["墨水晶"])} / 💎${fmt(dBest["墨水晶"])}
-🟨 金幣（換沙金袋）：💎${fmt(dWorst["金幣"])} / 💎${fmt(dBest["金幣"])}
+🟨 金幣（換沙金袋）：💎${fmt(Math.round(
+  Math.max(
+    (
+      (needBook.教皇認可 * CRAFT.教皇認可.cost.金幣 * 6) +
+      (needBook.實習匠人的證明盾 * CRAFT.實習匠人的證明盾.cost.金幣 * 11) +
+      (needBook.傭兵隊長推薦書 * CRAFT.傭兵隊長推薦書.cost.金幣 * 16) +
+      FINAL_BOOK.金幣 -
+      have金幣 -
+      (fail教皇 * CRAFT.教皇認可.cost.金幣) -
+      (fail盾 * CRAFT.實習匠人的證明盾.cost.金幣) -
+      (fail推薦 * CRAFT.傭兵隊長推薦書.cost.金幣)
+    ) / 70000 * (await getExlPrice("金幣")),
+    0
+  )
+))} / 💎${fmt(Math.round(
+  Math.max(
+    (
+      (needBook.教皇認可 * CRAFT.教皇認可.cost.金幣) +
+      (needBook.實習匠人的證明盾 * CRAFT.實習匠人的證明盾.cost.金幣) +
+      (needBook.傭兵隊長推薦書 * CRAFT.傭兵隊長推薦書.cost.金幣) +
+      FINAL_BOOK.金幣 -
+      have金幣
+    ) / 70000 * (await getExlPrice("金幣")),
+    0
+  )
+))}`
 --------------
 💎 總鑽石：💎${fmt(totalWorst)} / 💎${fmt(totalBest)}`;
 
