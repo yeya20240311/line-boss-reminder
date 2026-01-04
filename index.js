@@ -25,6 +25,7 @@ const client = new Client(config);
  
 // ===== Google Sheets 設定 =====
 const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
+const MARKET_RANGE = "Boss!J2:K";
 const GOOGLE_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
 
@@ -603,8 +604,6 @@ if (text === "/開啟通知" || text === "/關閉通知") {
 }
 
 // ===== 交易所功能 =====
-const MARKET_RANGE = `${SHEET_NAME}!J2:K`;
-
 async function getMarketRows() {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
