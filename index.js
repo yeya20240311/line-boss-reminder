@@ -936,10 +936,13 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
         const successCount = need;
         const failTimes = Math.max(worstTry - successCount, 0);
         worst[mat] += ((successCount * per) + (failTimes * (per -1))) * (marketPrice[mat] || 0);
-      } else if (mat === "金幣") {
-        const goldBag = 70000;
-worst[mat] += ((FINAL_BOOK.金幣 - have金幣) / goldBag) * (marketPrice[mat] || 0);
-best[mat]  += ((FINAL_BOOK.金幣 - have金幣) / goldBag) * (marketPrice[mat] || 0);
+    } else if (mat === "金幣") {
+  const goldBag = 70000;
+  // 最非：只計算製作失敗次數消耗的金幣
+  worst[mat] += ((worstTry - need) * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
+  // 最歐：一次成功消耗的金幣（不含固定書本成本）
+  best[mat]  += (need * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
+}
       } else {
         worst[mat] += per * worstTry * (marketPrice[mat] || 0);
       }
@@ -949,8 +952,9 @@ best[mat]  += ((FINAL_BOOK.金幣 - have金幣) / goldBag) * (marketPrice[mat] |
   // ===== 四轉書固定成本 =====
   worst.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
   best.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
-  worst.金幣 += FINAL_BOOK.金幣 * (marketPrice["金幣"] || 0);
-  best.金幣 += FINAL_BOOK.金幣 * (marketPrice["金幣"] || 0);
+const goldBag = 70000;
+worst.金幣 += (FINAL_BOOK.金幣 / goldBag) * (marketPrice["金幣"] || 0);
+best.金幣  += (FINAL_BOOK.金幣 / goldBag) * (marketPrice["金幣"] || 0);
 
   // ===== 扣掉使用者現有材料 =====
   const have = { 詛咒精華: have詛咒, 優級轉職信物: have優級, 古代匠人的合金: have合金,
