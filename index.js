@@ -955,14 +955,14 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
 
   const fmt = n => n.toLocaleString();
 
-  const reply = `💎 四轉材料所缺鑽石
+const reply = `💎 四轉材料所缺鑽石
 --------------【最非】 / 【最歐】
-🟪 詛咒精華：💎${fmt(dWorst["詛咒精華"])} / 💎${fmt(dBest["詛咒精華"])}
-🟪 優級轉職信物：💎${fmt(dWorst["優級轉職信物"])} / 💎${fmt(dBest["優級轉職信物"])}
-⬛ 轉職信物：💎${fmt(dWorst["轉職信物"])} / 💎${fmt(dBest["轉職信物"])}
-🟦 古代莎草紙：💎${fmt(dWorst["古代莎草紙"])} / 💎${fmt(dBest["古代莎草紙"])}
-🟨 墨水晶：💎${fmt(dWorst["墨水晶"])} / 💎${fmt(dBest["墨水晶"])}
-🟨 金幣（換沙金袋）：💎${fmt(Math.round(
+🟪 詛咒精華：${Math.round(worst["詛咒精華"] * (await getExlPrice("詛咒精華")))} / ${Math.round(best["詛咒精華"] * (await getExlPrice("詛咒精華")))}
+🟪 優級轉職信物：${Math.round(worst["優級轉職信物"] * (await getExlPrice("優級轉職信物")))} / ${Math.round(best["優級轉職信物"] * (await getExlPrice("優級轉職信物")))}
+⬛ 轉職信物：${Math.round(worst["轉職信物"] * (await getExlPrice("轉職信物")))} / ${Math.round(best["轉職信物"] * (await getExlPrice("轉職信物")))}
+🟦 古代莎草紙：${Math.round(worst["古代莎草紙"] * (await getExlPrice("古代莎草紙")))} / ${Math.round(best["古代莎草紙"] * (await getExlPrice("古代莎草紙")))}
+🟨 墨水晶：${Math.round(worst["墨水晶"] * (await getExlPrice("墨水晶")))} / ${Math.round(best["墨水晶"] * (await getExlPrice("墨水晶")))}
+🟨 金幣（換沙金袋）：${Math.round(
   Math.max(
     (
       (needBook.教皇認可 * CRAFT.教皇認可.cost.金幣 * 6) +
@@ -976,7 +976,7 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
     ) / 70000 * (await getExlPrice("金幣")),
     0
   )
-))} / 💎${fmt(Math.round(
+)} / ${Math.round(
   Math.max(
     (
       (needBook.教皇認可 * CRAFT.教皇認可.cost.金幣) +
@@ -987,9 +987,9 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
     ) / 70000 * (await getExlPrice("金幣")),
     0
   )
-))}`
+))}
 --------------
-💎 總鑽石：💎${fmt(totalWorst)} / 💎${fmt(totalBest)}`;
+💎 總鑽石：${Math.round(worstExl)} / ${Math.round(bestExl)}`;
 
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
