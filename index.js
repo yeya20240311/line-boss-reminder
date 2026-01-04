@@ -955,33 +955,38 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
 
   const fmt = n => n.toLocaleString();
 
+// ===== 計算 EXL 總成本 =====
+const worstExl = await calcExlCost(worst);
+const bestExl  = await calcExlCost(best);
+
+// ===== 組 reply 字串 =====
 const reply = `💎 四轉材料所缺鑽石
 --------------【最非】 / 【最歐】
-🟪 詛咒精華：${Math.round(worst["詛咒精華"] * (await getExlPrice("詛咒精華")))} / ${Math.round(best["詛咒精華"] * (await getExlPrice("詛咒精華")))}
-🟪 優級轉職信物：${Math.round(worst["優級轉職信物"] * (await getExlPrice("優級轉職信物")))} / ${Math.round(best["優級轉職信物"] * (await getExlPrice("優級轉職信物")))}
-⬛ 轉職信物：${Math.round(worst["轉職信物"] * (await getExlPrice("轉職信物")))} / ${Math.round(best["轉職信物"] * (await getExlPrice("轉職信物")))}
-🟦 古代莎草紙：${Math.round(worst["古代莎草紙"] * (await getExlPrice("古代莎草紙")))} / ${Math.round(best["古代莎草紙"] * (await getExlPrice("古代莎草紙")))}
-🟨 墨水晶：${Math.round(worst["墨水晶"] * (await getExlPrice("墨水晶")))} / ${Math.round(best["墨水晶"] * (await getExlPrice("墨水晶")))}
-🟨 金幣（換沙金袋）：${Math.round(
+🟪 詛咒精華：💎${Math.round(worst["詛咒精華"] * (await getExlPrice("詛咒精華")))} / 💎${Math.round(best["詛咒精華"] * (await getExlPrice("詛咒精華")))}
+🟪 優級轉職信物：💎${Math.round(worst["優級轉職信物"] * (await getExlPrice("優級轉職信物")))} / 💎${Math.round(best["優級轉職信物"] * (await getExlPrice("優級轉職信物")))}
+⬛ 轉職信物：💎${Math.round(worst["轉職信物"] * (await getExlPrice("轉職信物")))} / 💎${Math.round(best["轉職信物"] * (await getExlPrice("轉職信物")))}
+🟦 古代莎草紙：💎${Math.round(worst["古代莎草紙"] * (await getExlPrice("古代莎草紙")))} / 💎${Math.round(best["古代莎草紙"] * (await getExlPrice("古代莎草紙")))}
+🟨 墨水晶：💎${Math.round(worst["墨水晶"] * (await getExlPrice("墨水晶")))} / 💎${Math.round(best["墨水晶"] * (await getExlPrice("墨水晶")))}
+🟨 金幣（換沙金袋）：💎${Math.round(
   Math.max(
     (
-      (needBook.教皇認可 * CRAFT.教皇認可.cost.金幣 * 6) +
-      (needBook.實習匠人的證明盾 * CRAFT.實習匠人的證明盾.cost.金幣 * 11) +
-      (needBook.傭兵隊長推薦書 * CRAFT.傭兵隊長推薦書.cost.金幣 * 16) +
+      needBook.教皇認可 * CRAFT.教皇認可.cost.金幣 * 6 +
+      needBook.實習匠人的證明盾 * CRAFT.實習匠人的證明盾.cost.金幣 * 11 +
+      needBook.傭兵隊長推薦書 * CRAFT.傭兵隊長推薦書.cost.金幣 * 16 +
       FINAL_BOOK.金幣 -
       have金幣 -
-      (fail教皇 * CRAFT.教皇認可.cost.金幣) -
-      (fail盾 * CRAFT.實習匠人的證明盾.cost.金幣) -
-      (fail推薦 * CRAFT.傭兵隊長推薦書.cost.金幣)
+      fail教皇 * CRAFT.教皇認可.cost.金幣 -
+      fail盾 * CRAFT.實習匠人的證明盾.cost.金幣 -
+      fail推薦 * CRAFT.傭兵隊長推薦書.cost.金幣
     ) / 70000 * (await getExlPrice("金幣")),
     0
   )
-)} / ${Math.round(
+)} / 💎${Math.round(
   Math.max(
     (
-      (needBook.教皇認可 * CRAFT.教皇認可.cost.金幣) +
-      (needBook.實習匠人的證明盾 * CRAFT.實習匠人的證明盾.cost.金幣) +
-      (needBook.傭兵隊長推薦書 * CRAFT.傭兵隊長推薦書.cost.金幣) +
+      needBook.教皇認可 * CRAFT.教皇認可.cost.金幣 +
+      needBook.實習匠人的證明盾 * CRAFT.實習匠人的證明盾.cost.金幣 +
+      needBook.傭兵隊長推薦書 * CRAFT.傭兵隊長推薦書.cost.金幣 +
       FINAL_BOOK.金幣 -
       have金幣
     ) / 70000 * (await getExlPrice("金幣")),
@@ -989,7 +994,8 @@ const reply = `💎 四轉材料所缺鑽石
   )
 )}
 --------------
-💎 總鑽石：${Math.round(worstExl)} / ${Math.round(bestExl)}`;
+💎 總鑽石：💎${Math.round(worstExl)} / 💎${Math.round(bestExl)}`;
+
 
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
