@@ -886,33 +886,41 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     傭兵隊長推薦書: Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0),
   };
 
-  // ===== 交易所價格（自動抓 Google Sheet J2:K11）=====
+  // ===== 交易所價格（自動抓 Google Sheet J2:K 全範圍）=====
   let marketPrice = {};
   try {
-    const sheets = google.sheets({ version: "v4", auth });
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SHEET_ID,
-      range: "J2:K11",
+      spreadsheetId: SHEET_ID,
+      range: `${SHEET_NAME}!J2:K`,
     });
-    const rows = res.data.values;
-    if (!rows || rows.length === 0) throw new Error("No data");
-    rows.forEach(r => { marketPrice[r[0]] = parseFloat(r[1]); });
+    const rows = res.data.values || [];
+    if (rows.length === 0) throw new Error("交易所表格沒有資料");
+    
+    rows.forEach(r => {
+      if (!r[0] || !r[1]) return;
+      const val = parseFloat(r[1]);
+      if (!isNaN(val)) marketPrice[r[0]] = val;
+    });
+
+    // 確保金幣價格存在，避免後面 NaN
+    if (!marketPrice["金幣"]) marketPrice["金幣"] = 70000;
   } catch (err) {
+    console.error("❌ 交易所價格抓取錯誤：", err);
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: "❌ 無法取得交易所價格，請稍後再試。",
+      text: `❌ 無法取得交易所價格：${err.message || err}`,
     });
     return;
   }
 
+  // ===== 計算表格 =====
   const CRAFT = {
-    教皇認可: { worstTry: 6, cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10, 墨水晶: 20, 金幣: 1_000_000 } },
+    教皇認可: { worstTry: 6, cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10,墨水晶: 20, 金幣: 1_000_000 } },
     實習匠人的證明盾: { worstTry: 11, cost: { 古代匠人的合金: 5, 冰凍之淚: 5, 金屬殘片: 3, 墨水晶: 30, 金幣: 450_000 } },
     傭兵隊長推薦書: { worstTry: 16, cost: { 古代莎草紙: 10, 轉職信物: 20, 金屬殘片: 3,墨水晶: 10, 金幣: 200_000 } },
   };
 
   const failMap = { 教皇認可: fail教皇, "實習匠人的證明盾": fail盾, 傭兵隊長推薦書: fail推薦 };
-
   const mats = ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"];
   const worst = {}, best = {};
   mats.forEach(m => { worst[m] = 0; best[m] = 0; });
@@ -928,13 +936,10 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     for (const mat in cfg.cost) {
       const per = cfg.cost[mat];
       if (mat === "金幣") {
-        // 金幣特別計算：70000 金幣為一袋，無條件 +1，再乘價格
-        const totalGold = per * safeWorstTry;
-        let sacks = Math.floor(totalGold / 70000) + 1;
-        worst[mat] += sacks * marketPrice["金幣"];
-        best[mat] += sacks * marketPrice["金幣"];
+        // 金幣換算成鑽石價格
+        worst[mat] += Math.max(per * safeWorstTry / 70000, 0) * marketPrice["金幣"];
+        best[mat] += Math.max(per * need / 70000, 0) * marketPrice["金幣"];
       } else if (mat === "詛咒精華") {
-        // 詛咒精華按顆計算
         worst[mat] += per * safeWorstTry;
         best[mat] += per * need;
       } else {
@@ -944,11 +949,16 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     }
   }
 
-  // ===== 扣掉現有材料 =====
+  // ===== 扣掉現有材料（鑽換算） =====
   const have = { 詛咒精華: have詛咒, 優級轉職信物: have優級, 古代匠人的合金: have合金, 冰凍之淚: have冰淚, 轉職信物: have信物, 金屬殘片: have殘片, 古代莎草紙: have莎草, 墨水晶: have墨水, 金幣: have金幣 };
   for (const k in have) {
-    worst[k] = Math.max(worst[k] - (have[k]*marketPrice[k]||0), 0);
-    best[k] = Math.max(best[k] - (have[k]*marketPrice[k]||0), 0);
+    if (k === "金幣") {
+      worst[k] = Math.max(worst[k] - (have[k] * marketPrice[k] || 0), 0);
+      best[k] = Math.max(best[k] - (have[k] * marketPrice[k] || 0), 0);
+    } else {
+      worst[k] = Math.max(worst[k] - have[k], 0);
+      best[k] = Math.max(best[k] - have[k], 0);
+    }
   }
 
   const fmt = n => n.toLocaleString();
@@ -958,7 +968,7 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
 🟧 教皇認可：${needBook.教皇認可} 
 🟪 實習匠人的證明盾：${needBook["實習匠人的證明盾"]} 
 🟪 傭兵隊長推薦書：${needBook.傭兵隊長推薦書}
---------------【最非】 / 【最歐】
+--------------【最非】 / 【最歐】 
 🟪 詛咒精華：${fmt(worst["詛咒精華"])} / ${fmt(best["詛咒精華"])}
 🟪 優級轉職信物：${fmt(worst["優級轉職信物"])} / ${fmt(best["優級轉職信物"])}
 🟪 古代匠人的合金：${fmt(worst["古代匠人的合金"])} / ${fmt(best["古代匠人的合金"])}
@@ -967,14 +977,12 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
 ⬛ 金屬殘片：${fmt(worst["金屬殘片"])} / ${fmt(best["金屬殘片"])}
 🟦 古代莎草紙：${fmt(worst["古代莎草紙"])} / ${fmt(best["古代莎草紙"])}
 🟨 墨水晶：${fmt(worst["墨水晶"])} / ${fmt(best["墨水晶"])}
-🟨 金幣：${fmt(worst["金幣"])} / ${fmt(best["金幣"])}
-
-💎 最非所需鑽石 ${fmt(Object.values(worst).reduce((a,b)=>a+b,0))}
-💎 最歐所需鑽石 ${fmt(Object.values(best).reduce((a,b)=>a+b,0))}`;
+🟨 金幣：${fmt(worst["金幣"])} / ${fmt(best["金幣"])}`;
 
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
 }
+
 
   
   }
