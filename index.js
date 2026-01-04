@@ -744,9 +744,6 @@ if (mat === "詛咒精華") {
   });
   return;
 }
-
-
-}
 // ===== 啟動 =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
