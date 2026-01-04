@@ -987,7 +987,7 @@ const reply = `💎 四轉材料所缺鑽石
     ) / 70000 * (await getExlPrice("金幣")),
     0
   )
-))}
+)}
 --------------
 💎 總鑽石：${Math.round(worstExl)} / ${Math.round(bestExl)}`;
 
