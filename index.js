@@ -994,7 +994,7 @@ const reply = `💎 四轉材料所缺鑽石
 ))}
 
 --------------
-💎 總鑽石：💎${Math.round(worstExl)} / 💎${Math.round(bestExl)}`;
+💎 總鑽石：💎${totalWorst} / 💎${totalBest}
 
 
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
