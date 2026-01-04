@@ -873,125 +873,154 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   ] = nums;
 
   // ===== 最終需求 =====
-  const FINAL_BOOK = { 教皇認可: 15, 實習匠人的證明盾: 15, 傭兵隊長推薦書: 40, 墨水晶: 500, 金幣: 50_000_000 };
+  const FINAL_BOOK = {
+    教皇認可: 15,
+    實習匠人的證明盾: 15,
+    傭兵隊長推薦書: 40,
+    墨水晶: 500,
+    金幣: 50_000_000,
+  };
 
   // ===== 製作表（最慘第 N 次必成功）=====
   const CRAFT = {
-    教皇認可: { worstTry: 6, cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10, 墨水晶: 20, 金幣: 1_000_000 } },
-    實習匠人的證明盾: { worstTry: 11, cost: { 古代匠人的合金: 5, 冰凍之淚: 5, 金屬殘片: 3, 墨水晶: 30, 金幣: 450_000 } },
-    傭兵隊長推薦書: { worstTry: 16, cost: { 古代莎草紙: 10, 轉職信物: 20, 金屬殘片: 3, 墨水晶: 10, 金幣: 200_000 } },
+    教皇認可: {
+      worstTry: 6,
+      cost: {
+        詛咒精華: 5,
+        優級轉職信物: 8,
+        轉職信物: 10,
+        墨水晶: 20,
+        金幣: 1_000_000,
+      },
+    },
+    實習匠人的證明盾: {
+      worstTry: 11,
+      cost: {
+        古代匠人的合金: 5,
+        冰凍之淚: 5,
+        金屬殘片: 3,
+        墨水晶: 30,
+        金幣: 450_000,
+      },
+    },
+    傭兵隊長推薦書: {
+      worstTry: 16,
+      cost: {
+        古代莎草紙: 10,
+        轉職信物: 20,
+        金屬殘片: 3,
+        墨水晶: 10,
+        金幣: 200_000,
+      },
+    },
   };
 
+  // ===== 尚需成功數 =====
   const needBook = {
     教皇認可: Math.max(FINAL_BOOK.教皇認可 - have教皇, 0),
     實習匠人的證明盾: Math.max(FINAL_BOOK.實習匠人的證明盾 - have盾, 0),
     傭兵隊長推薦書: Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0),
   };
 
-  // ===== 先抓 EXL 浮動價格 =====
-  let marketPrice = {};
-  try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: MARKET_RANGE,
-    });
-    const rows = res.data.values || [];
-    rows.forEach(r => {
-      if (!r[0] || !r[1]) return;
-      const val = parseFloat(r[1]);
-      if (!isNaN(val)) marketPrice[r[0]] = val;
-    });
-  } catch (err) {
-    console.error("❌ 交易所價格抓取錯誤：", err);
-    await client.replyMessage(event.replyToken, {
-      type: "text",
-      text: `❌ 無法取得交易所價格：${err.message || err}`,
-    });
-    return;
-  }
+  const worst = {};
+  const best = {};
+  const mats = [
+    "詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚",
+    "轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"
+  ];
+  mats.forEach(m => {
+    worst[m] = 0;
+    best[m] = 0;
+  });
 
-  const mats = ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"];
-  const worst = {}, best = {};
-  mats.forEach(m => { worst[m]=0; best[m]=0; });
+  // ===== 核心計算（最非 / 最歐）=====
+  const failMap = {
+    教皇認可: fail教皇,
+    實習匠人的證明盾: fail盾,
+    傭兵隊長推薦書: fail推薦,
+  };
 
-  const failMap = { 教皇認可: fail教皇, 實習匠人的證明盾: fail盾, 傭兵隊長推薦書: fail推薦 };
-
-  // ===== 計算最非 / 最歐數量 × EXL價格 =====
   for (const book in needBook) {
     const need = needBook[book];
     if (need <= 0) continue;
 
     const cfg = CRAFT[book];
     const failCount = failMap[book] || 0;
-    const worstTry = Math.max(need * cfg.worstTry - failCount, 0);
 
-for (const mat in cfg.cost) {
-  const per = cfg.cost[mat];
+    // 最非嘗試次數（失敗次數只影響一次）
+    const worstTryCount =
+      need === 0
+        ? 0
+        : (need * cfg.worstTry) - failCount;
 
-  // 最歐：成功一次即可
-  best[mat] += per * need * (marketPrice[mat] || 0);
+    const safeWorstTry = Math.max(worstTryCount, 0);
 
-  // 最非：計算失敗退料（只有詛咒精華退1顆，其餘直接乘安全次數）
-  if (mat === "詛咒精華") {
-    const successCount = need;
-    const failTimes = Math.max(worstTry - successCount, 0);
-    worst[mat] += ((successCount * per) + (failTimes * (per -1))) * (marketPrice[mat] || 0);
+    for (const mat in cfg.cost) {
+      const per = cfg.cost[mat];
 
-  } else if (mat === "金幣") {
-    const goldBag = 70000;
-    // 最非：只計算製作失敗次數消耗的金幣
-    worst[mat] += ((worstTry - need) * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
-    // 最歐：一次成功消耗的金幣（不含固定書本成本）
-    best[mat]  += (need * (CRAFT[book].cost[mat] || 0) / goldBag) * (marketPrice[mat] || 0);
-
-  } else {
-    worst[mat] += per * worstTry * (marketPrice[mat] || 0);
-  }
-} // <- 這裡是 for 的閉合
-
-  // ===== 四轉書固定成本 =====
-  worst.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
-  best.墨水晶 += FINAL_BOOK.墨水晶 * (marketPrice["墨水晶"] || 0);
-const goldBag = 70000;
-worst.金幣 += (FINAL_BOOK.金幣 / goldBag) * (marketPrice["金幣"] || 0);
-best.金幣  += (FINAL_BOOK.金幣 / goldBag) * (marketPrice["金幣"] || 0);
-
-  // ===== 扣掉使用者現有材料 =====
-  const have = { 詛咒精華: have詛咒, 優級轉職信物: have優級, 古代匠人的合金: have合金,
-                 冰凍之淚: have冰淚, 轉職信物: have信物, 金屬殘片: have殘片,
-                 古代莎草紙: have莎草, 墨水晶: have墨水, 金幣: have金幣 };
-
-  mats.forEach(k => {
-    if (k === "金幣") {
-      const goldBag = 70000;
-      worst[k] = Math.max(worst[k] - (have[k] / goldBag) * (marketPrice[k] || 0), 0);
-      best[k]  = Math.max(best[k] - (have[k] / goldBag) * (marketPrice[k] || 0), 0);
-    } else {
-      worst[k] = Math.max(worst[k] - have[k]*(marketPrice[k] || 0), 0);
-      best[k]  = Math.max(best[k] - have[k]*(marketPrice[k] || 0), 0);
+      if (mat === "詛咒精華") {
+        const successCount = need;
+        const failTimes = Math.max(safeWorstTry - successCount, 0);
+        worst[mat] += (successCount * per) + (failTimes * (per - 1));
+        best[mat] += per * need;
+      } else if (mat === "墨水晶" || mat === "金幣") {
+        // 墨水晶 & 金幣計算方式相同
+        worst[mat] += per * safeWorstTry;
+        best[mat]  += per * need;
+      } else {
+        worst[mat] += per * safeWorstTry;
+        best[mat]  += per * need;
+      }
     }
+  }
+
+  // ===== 四轉書本體固定成本 =====
+  worst.墨水晶 += FINAL_BOOK.墨水晶;
+  best.墨水晶 += FINAL_BOOK.墨水晶;
+  worst.金幣 += FINAL_BOOK.金幣;
+  best.金幣  += FINAL_BOOK.金幣;
+
+  // ===== 扣掉現有材料 =====
+  const have = {
+    詛咒精華: have詛咒,
+    優級轉職信物: have優級,
+    古代匠人的合金: have合金,
+    冰凍之淚: have冰淚,
+    轉職信物: have信物,
+    金屬殘片: have殘片,
+    古代莎草紙: have莎草,
+    墨水晶: have墨水,
+    金幣: have金幣,
+  };
+
+  for (const k in have) {
+    worst[k] = Math.max(worst[k] - have[k], 0);
+    best[k] = Math.max(best[k] - have[k], 0);
+  }
+
+  const fmt = n => n.toLocaleString();
+
+  const reply = `📘 四轉材料缺口
+
+🟧 教皇認可：${fmt(needBook.教皇認可)}
+🟪 實習匠人的證明盾：${fmt(needBook.實習匠人的證明盾)}
+🟪 傭兵隊長推薦書：${fmt(needBook.傭兵隊長推薦書)}
+--------------
+【最非】 / 【最歐】
+🟪 詛咒精華：${fmt(worst.詛咒精華)} / ${fmt(best.詛咒精華)}
+🟪 優級轉職信物：${fmt(worst.優級轉職信物)} / ${fmt(best.優級轉職信物)}
+🟪 古代匠人的合金：${fmt(worst.古代匠人的合金)} / ${fmt(best.古代匠人的合金)}
+🟪 冰凍之淚：${fmt(worst.冰凍之淚)} / ${fmt(best.冰凍之淚)}
+⬛ 轉職信物：${fmt(worst.轉職信物)} / ${fmt(best.轉職信物)}
+⬛ 金屬殘片：${fmt(worst.金屬殘片)} / ${fmt(best.金屬殘片)}
+🟦 古代莎草紙：${fmt(worst.古代莎草紙)} / ${fmt(best.古代莎草紙)}
+🟨 墨水晶：${fmt(worst.墨水晶)} / ${fmt(best.墨水晶)}
+🟨 金幣（換沙金袋）：${fmt(worst.金幣)} / ${fmt(best.金幣)}`;
+
+  await client.replyMessage(event.replyToken, {
+    type: "text",
+    text: reply,
   });
-
-  const totalWorst = mats.reduce((sum,m)=>sum+worst[m],0);
-  const totalBest  = mats.reduce((sum,m)=>sum+best[m],0);
-  const fmt = n => n.toLocaleString(undefined,{maximumFractionDigits:2});
-
-  const reply = `💎 四轉材料所缺鑽石
-
---------------【最非】 / 【最歐】  
-🟪 詛咒精華：${fmt(worst["詛咒精華"])} / ${fmt(best["詛咒精華"])}  
-🟪 優級轉職信物：${fmt(worst["優級轉職信物"])} / ${fmt(best["優級轉職信物"])}  
-🟪 古代匠人的合金：${fmt(worst["古代匠人的合金"])} / ${fmt(best["古代匠人的合金"])}  
-🟪 冰凍之淚：${fmt(worst["冰凍之淚"])} / ${fmt(best["冰凍之淚"])}  
-⬛ 轉職信物：${fmt(worst["轉職信物"])} / ${fmt(best["轉職信物"])}  
-⬛ 金屬殘片：${fmt(worst["金屬殘片"])} / ${fmt(best["金屬殘片"])}  
-🟦 古代莎草紙：${fmt(worst["古代莎草紙"])} / ${fmt(best["古代莎草紙"])}  
-🟨 墨水晶：${fmt(worst["墨水晶"])} / ${fmt(best["墨水晶"])}  
-🟨 金幣（換沙金袋）：${fmt(worst["金幣"])} / ${fmt(best["金幣"])}  
---------------  
-💎 總鑽石：${fmt(totalWorst)} / ${fmt(totalBest)}`;
-
-  await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
 }
 
