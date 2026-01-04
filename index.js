@@ -880,7 +880,6 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     傭兵隊長推薦書: 40,
   };
 
-  // ===== 製作表（最慘第 N 次必成功）=====
   const CRAFT = {
     教皇認可: { worstTry: 6, cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10, 墨水晶: 20, 金幣: 1_000_000 } },
     實習匠人的證明盾: { worstTry: 11, cost: { 古代匠人的合金: 5, 冰凍之淚: 5, 金屬殘片: 3, 墨水晶: 30, 金幣: 450_000 } },
@@ -893,16 +892,40 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     傭兵隊長推薦書: Math.max(FINAL_BOOK.傭兵隊長推薦書 - have推薦, 0),
   };
 
-  // ===== 取得交易所價格（自動抓 Sheet J2:K11）=====
-  const marketPrice = await getMarketPrice(); // see 下方 getMarketPrice()
+  // ===== 從 Sheet 抓交易所價格 =====
+  let marketPrice = {};
+  try {
+    const data = await getMarketPrice(); // 你的抓 Sheet 函式
+    // 假設 data 是 { 材料: 價格, ... }
+    marketPrice = data;
+  } catch (err) {
+    console.error(err);
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "❌ 無法取得交易所價格，請稍後再試。",
+    });
+    return;
+  }
 
-  const failMap = { 教皇認可: fail教皇, 實習匠人的證明盾: fail盾, 傭兵隊長推薦書: fail推薦 };
+  // 保底
+  marketPrice["詛咒精華"] = marketPrice["詛咒精華"] || 100;
+  marketPrice["優級轉職信物"] = marketPrice["優級轉職信物"] || 100;
+  marketPrice["古代匠人的合金"] = marketPrice["古代匠人的合金"] || 100;
+  marketPrice["冰凍之淚"] = marketPrice["冰凍之淚"] || 100;
+  marketPrice["轉職信物"] = marketPrice["轉職信物"] || 100;
+  marketPrice["金屬殘片"] = marketPrice["金屬殘片"] || 100;
+  marketPrice["古代莎草紙"] = marketPrice["古代莎草紙"] || 100;
+  marketPrice["墨水晶"] = marketPrice["墨水晶"] || 100;
+  marketPrice["沙金袋"] = marketPrice["沙金袋"] || 70000;
+  marketPrice["金幣單價"] = marketPrice["金幣單價"] || 0.9;
+
+  const failMap = { 教皇認可: fail教皇, "實習匠人的證明盾": fail盾, 傭兵隊長推薦書: fail推薦 };
 
   const worst = {}, best = {};
   const mats = ["詛咒精華","優級轉職信物","古代匠人的合金","冰凍之淚","轉職信物","金屬殘片","古代莎草紙","墨水晶","金幣"];
   mats.forEach(m => { worst[m] = 0; best[m] = 0; });
 
-  // ===== 核心計算（材料 × 交易所價格）=====
+  // ===== 核心計算 =====
   for (const book in needBook) {
     const need = needBook[book];
     if (need <= 0) continue;
@@ -917,13 +940,11 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
         // 金幣換成沙金袋
         const totalGold = per * safeWorstTry;
         let sacks = totalGold / marketPrice["沙金袋"];
-        sacks = Math.floor(sacks) + 1; // 無條件+1
+        sacks = Math.floor(sacks) + 1;
         worst[mat] += sacks * marketPrice["金幣單價"];
         best[mat] += sacks * marketPrice["金幣單價"];
       } else if (mat === "詛咒精華") {
-        const successCount = need;
-        const failTimes = Math.max(safeWorstTry - successCount, 0);
-        worst[mat] += (successCount * per) + (failTimes * (per - 1));
+        worst[mat] += per * need;
         best[mat] += per * need;
       } else {
         worst[mat] += per * safeWorstTry;
@@ -945,21 +966,18 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
     金幣: have金幣,
   };
   for (const k in have) {
-    if (k !== "金幣") {
-      worst[k] = Math.max(worst[k] - have[k]*marketPrice[k] || 0, 0);
-      best[k] = Math.max(best[k] - have[k]*marketPrice[k] || 0, 0);
-    }
+    worst[k] = Math.max(worst[k] - have[k]*marketPrice[k] || 0, 0);
+    best[k] = Math.max(best[k] - have[k]*marketPrice[k] || 0, 0);
   }
 
   const fmt = n => n.toLocaleString();
 
-  const reply = `📘 四轉材料所缺鑽石 
+  const reply = `📘 四轉材料所缺鑽石
 
 🟧 教皇認可：${needBook.教皇認可} 
-🟪 實習匠人的證明盾：${needBook.實習匠人的證明盾} 
+🟪 實習匠人的證明盾：${needBook["實習匠人的證明盾"]} 
 🟪 傭兵隊長推薦書：${needBook.傭兵隊長推薦書}
---------------
-【最非】 / 【最歐】
+--------------【最非】 / 【最歐】
 🟪 詛咒精華：${fmt(worst["詛咒精華"])} / ${fmt(best["詛咒精華"])}
 🟪 優級轉職信物：${fmt(worst["優級轉職信物"])} / ${fmt(best["優級轉職信物"])}
 🟪 古代匠人的合金：${fmt(worst["古代匠人的合金"])} / ${fmt(best["古代匠人的合金"])}
@@ -976,42 +994,6 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
 }
-
-// ===== 取得交易所價格 =====
-async function getMarketPrice() {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: "credentials.json",
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: "v4", auth: client });
-
-  const SPREADSHEET_ID = "你的SheetID";
-  const RANGE = "J2:K11";
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: RANGE,
-  });
-
-  const values = res.data.values || [];
-  const marketPrice = {};
-
-  for (const row of values) {
-    if (!row[0]) continue;
-    const key = row[0].trim();
-    const value = parseFloat(row[1]) || 0;
-    marketPrice[key] = value;
-  }
-
-  // 金幣特殊欄位
-  if (!marketPrice["金幣單價"]) marketPrice["金幣單價"] = 0.9;
-  if (!marketPrice["沙金袋"]) marketPrice["沙金袋"] = 70000;
-
-  return marketPrice;
-}
-
-
 
   
   }
