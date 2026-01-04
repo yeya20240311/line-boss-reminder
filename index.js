@@ -680,7 +680,16 @@ for (const mat in cfg.cost) {
   // 最歐：每顆一次成功
   best[mat] += per * need;
 
-  // 最非：用「嘗試次數」乘材料成本
+ // 最非：材料計算（只有詛咒精華有失敗退回）
+if (mat === "詛咒精華") {
+  const successCount = need; // 成功次數
+  const failTimes = Math.max(safeWorstTry - successCount, 0); // 失敗次數
+
+  // 成功：完整消耗
+  // 失敗：退 1 顆 → 淨消耗 (per - 1)
+  worst[mat] += (successCount * per) + (failTimes * (per - 1));
+} else {
+  // 其他材料：失敗不退，照原本算
   worst[mat] += per * safeWorstTry;
 }
 
