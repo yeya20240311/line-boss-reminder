@@ -838,17 +838,17 @@ if (mat === "詛咒精華") {
 }
 
 // ===== /4轉鑽 指令 =====
-if (["/4轉鑽", "/四轉鑽"].includes(text)) {
-  const parts = text.split(" ");
-  if (parts.length < 2) {
+if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
+   const raw = parts[1];
+  if (!raw) {
     await client.replyMessage(event.replyToken, {
       type: "text",
-      text: "❌ 請輸入 /4轉鑽 目前擁有的四轉材料（格式同 /4轉，例如 7.1.12.5.10.2.3.14.0.187.599.2634.4.55.2391180）",
+      text: "❌ 請輸入 /4轉鑽 數字.數字.數字（共 15 個）",
     });
     return;
   }
 
-  const nums = parts[1].split(".").map(n => parseInt(n, 10) || 0);
+  const nums = raw.split(".").map(n => parseInt(n, 10) || 0);
   if (nums.length !== 15) {
     await client.replyMessage(event.replyToken, {
       type: "text",
