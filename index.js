@@ -904,18 +904,9 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   };
 
   const CRAFT = {
-    教皇認可: {
-      worstTry: 6,
-      cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10, 墨水晶: 20, 金幣: 1_000_000 }
-    },
-    實習匠人的證明盾: {
-      worstTry: 11,
-      cost: { 古代匠人的合金: 5, 冰凍之淚: 5, 金屬殘片: 3, 墨水晶: 30, 金幣: 450_000 }
-    },
-    傭兵隊長推薦書: {
-      worstTry: 16,
-      cost: { 古代莎草紙: 10, 轉職信物: 20, 金屬殘片: 3,墨水晶: 10, 金幣: 200_000 }
-    }
+    教皇認可: { worstTry: 6, cost: { 詛咒精華: 5, 優級轉職信物: 8, 轉職信物: 10, 墨水晶: 20, 金幣: 1_000_000 } },
+    實習匠人的證明盾: { worstTry: 11, cost: { 古代匠人的合金: 5, 冰凍之淚: 5, 金屬殘片: 3, 墨水晶: 30, 金幣: 450_000 } },
+    傭兵隊長推薦書: { worstTry: 16, cost: { 古代莎草紙: 10, 轉職信物: 20, 金屬殘片: 3,墨水晶: 10, 金幣: 200_000 } }
   };
 
   // ===== 尚需成功數 =====
@@ -950,10 +941,10 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
         worst[mat] += (successCount*per)+(failTimes*(per-1));
       } else if(mat==="金幣"){
         const goldBag = 70000;
-        const needBagWorst = safeWorstTry * per / goldBag; // 最非
-        const needBagBest  = need * per / goldBag;         // 最歐
-        worst[mat] += needBagWorst * (marketPrice[mat]||0);
-        best[mat]  += needBagBest  * (marketPrice[mat]||0);
+        // 使用缺金幣 ÷ 70000 × EXL價格
+        const missingGold = Math.max(FINAL_BOOK.金幣 - have金幣, 0);
+        worst[mat] = missingGold / goldBag * (marketPrice[mat]||0);
+        best[mat]  = missingGold / goldBag * (marketPrice[mat]||0);
       } else {
         worst[mat] += per * safeWorstTry;
       }
@@ -963,19 +954,13 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   // ===== 加上書本體固定成本 =====
   worst.墨水晶 += FINAL_BOOK.墨水晶;
   best.墨水晶  += FINAL_BOOK.墨水晶;
-  worst.金幣   += (marketPrice["金幣"]||0) * (FINAL_BOOK.金幣 / 70000);
-  best.金幣    += (marketPrice["金幣"]||0) * (FINAL_BOOK.金幣 / 70000);
 
   // ===== 扣掉現有材料 =====
   const have = { 詛咒精華:have詛咒, 優級轉職信物:have優級, 古代匠人的合金:have合金,
                  冰凍之淚:have冰淚, 轉職信物:have信物, 金屬殘片:have殘片,
                  古代莎草紙:have莎草, 墨水晶:have墨水, 金幣:have金幣 };
   mats.forEach(k=>{
-    if(k==="金幣"){
-      const goldBag = 70000;
-      worst[k] = Math.max(worst[k] - (have[k]/goldBag)*(marketPrice[k]||0),0);
-      best[k]  = Math.max(best[k]  - (have[k]/goldBag)*(marketPrice[k]||0),0);
-    } else {
+    if(k!=="金幣"){
       worst[k] = Math.max(worst[k] - (have[k]*(marketPrice[k]||0)),0);
       best[k]  = Math.max(best[k]  - (have[k]*(marketPrice[k]||0)),0);
     }
@@ -985,7 +970,7 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   const totalBest  = mats.reduce((sum,m)=>sum+best[m],0);
   const fmt = n=>n.toLocaleString(undefined,{maximumFractionDigits:2});
 
-   const reply = `💎 四轉材料所缺鑽石
+  const reply = `💎 四轉材料所缺鑽石
 
 --------------【最非】 / 【最歐】  
 🟪 詛咒精華：${fmt(worst["詛咒精華"])} / ${fmt(best["詛咒精華"])}  
@@ -1003,8 +988,6 @@ if (["/4轉鑽", "/四轉鑽"].includes(parts[0])) {
   await client.replyMessage(event.replyToken, { type: "text", text: reply });
   return;
 }
-
-
 
 
   
