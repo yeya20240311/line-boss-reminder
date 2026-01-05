@@ -184,39 +184,36 @@ if (text === "/幫助") {
 ━━━━━━━━━━━
 🧩 基本功能：
 /設定 王名 間隔(小時.分)
-　→ 設定王的重生間隔
 /重生 王名 剩餘時間(小時.分)
-　→ 登記王的下次重生時間
 /刪除 王名
-　→ 刪除該王資料
 /王
-　→ 查看所有王的剩餘時間與預計重生時間
 ━━━━━━━━━━━
 📅 通知相關：
 /通知 類別(如 冰/奇) 參數(0/9/1.2...)
-　→ 設定該分類的通知日期
-　　0＝關閉通知
-　　9＝每天通知
-　　1.2.3＝星期一二三通知
 /開啟通知
-　→ 全域開啟前10分鐘提醒
 /關閉通知
-　→ 全域關閉前10分鐘提醒
 ━━━━━━━━━━━
 🗂 分類管理：
 /分類 類別 王名
-　→ 將王加入指定分類
 /分類刪除 類別 王名
-　→ 從分類中移除王
+━━━━━━━━━━━
+📝 四轉相關：
+/4轉              → 四轉材料計算
+/4轉鑽            → 四轉材料缺鑽石
+/4轉材料          → 四轉材料輸入說明
+━━━━━━━━━━━
+💎 交易所相關：
+/交易所            → 顯示交易所最低價清單
+/交易所 新增 材料  → 新增交易所材料
+/交易所 材料 價格  → 更新交易所材料價格
 ━━━━━━━━━━━
 ℹ️ 其他：
 /資訊
-　→ 查看所有王的設定與通知日
-/我的ID
-　→ 顯示目前的群組、聊天室或個人 ID`
+/我的ID`
   });
   return;
 }
+
 
 // ===== 🔹 新增交易所功能 🔹 =====
 if (args[0] === "/交易所") {
@@ -857,6 +854,9 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
     return;
   }
 
+  // ===== 千分位格式 =====
+  const fmt = n => Math.round(n).toLocaleString("en-US");
+
   // ===== 對應輸入 =====
   const [
     have教皇, fail教皇,
@@ -977,9 +977,9 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
     priceMap[m] = await getExlPrice(m);
   }
 
-  // ===== 金幣 → 鑽石（只做轉換，不重算） =====
-  const goldWorstDiamond = Math.round(worst["金幣"] / 70000 * priceMap["金幣"]);
-  const goldBestDiamond  = Math.round(best["金幣"]  / 70000 * priceMap["金幣"]);
+  // ===== 金幣 → 鑽石（只做轉換） =====
+  const goldWorstDiamond = worst["金幣"] / 70000 * priceMap["金幣"];
+  const goldBestDiamond  = best["金幣"]  / 70000 * priceMap["金幣"];
 
   // ===== 總鑽石 =====
   let totalWorst = 0;
@@ -997,18 +997,18 @@ if (parts[0] === "/4轉鑽" || parts[0] === "/四轉鑽") {
 
   // ===== 回覆 =====
   const reply = `💎 四轉材料所缺鑽石
-🟪 詛咒精華：💎${Math.round(worst["詛咒精華"] * priceMap["詛咒精華"])} / 💎${Math.round(best["詛咒精華"] * priceMap["詛咒精華"])}
-🟪 優級轉職信物：💎${Math.round(worst["優級轉職信物"] * priceMap["優級轉職信物"])} / 💎${Math.round(best["優級轉職信物"] * priceMap["優級轉職信物"])}
-🟪 古代匠人的合金：💎${Math.round(worst["古代匠人的合金"] * priceMap["古代匠人的合金"])} / 💎${Math.round(best["古代匠人的合金"] * priceMap["古代匠人的合金"])}
-🟪 冰凍之淚：💎${Math.round(worst["冰凍之淚"] * priceMap["冰凍之淚"])} / 💎${Math.round(best["冰凍之淚"] * priceMap["冰凍之淚"])}
-⬛ 轉職信物：💎${Math.round(worst["轉職信物"] * priceMap["轉職信物"])} / 💎${Math.round(best["轉職信物"] * priceMap["轉職信物"])}
-⬛ 金屬殘片：💎${Math.round(worst["金屬殘片"] * priceMap["金屬殘片"])} / 💎${Math.round(best["金屬殘片"] * priceMap["金屬殘片"])}
-🟦 古代莎草紙：💎${Math.round(worst["古代莎草紙"] * priceMap["古代莎草紙"])} / 💎${Math.round(best["古代莎草紙"] * priceMap["古代莎草紙"])}
-🟨 墨水晶：💎${Math.round(worst["墨水晶"] * priceMap["墨水晶"])} / 💎${Math.round(best["墨水晶"] * priceMap["墨水晶"])}
-🟨 金幣（換沙金袋）：💎${goldWorstDiamond} / 💎${goldBestDiamond}
+🟪 詛咒精華：💎${fmt(worst["詛咒精華"] * priceMap["詛咒精華"])} / 💎${fmt(best["詛咒精華"] * priceMap["詛咒精華"])}
+🟪 優級轉職信物：💎${fmt(worst["優級轉職信物"] * priceMap["優級轉職信物"])} / 💎${fmt(best["優級轉職信物"] * priceMap["優級轉職信物"])}
+🟪 古代匠人的合金：💎${fmt(worst["古代匠人的合金"] * priceMap["古代匠人的合金"])} / 💎${fmt(best["古代匠人的合金"] * priceMap["古代匠人的合金"])}
+🟪 冰凍之淚：💎${fmt(worst["冰凍之淚"] * priceMap["冰凍之淚"])} / 💎${fmt(best["冰凍之淚"] * priceMap["冰凍之淚"])}
+⬛ 轉職信物：💎${fmt(worst["轉職信物"] * priceMap["轉職信物"])} / 💎${fmt(best["轉職信物"] * priceMap["轉職信物"])}
+⬛ 金屬殘片：💎${fmt(worst["金屬殘片"] * priceMap["金屬殘片"])} / 💎${fmt(best["金屬殘片"] * priceMap["金屬殘片"])}
+🟦 古代莎草紙：💎${fmt(worst["古代莎草紙"] * priceMap["古代莎草紙"])} / 💎${fmt(best["古代莎草紙"] * priceMap["古代莎草紙"])}
+🟨 墨水晶：💎${fmt(worst["墨水晶"] * priceMap["墨水晶"])} / 💎${fmt(best["墨水晶"] * priceMap["墨水晶"])}
+🟨 金幣（換沙金袋）：💎${fmt(goldWorstDiamond)} / 💎${fmt(goldBestDiamond)}
 
 --------------
-💎 總鑽石：💎${Math.round(totalWorst)} / 💎${Math.round(totalBest)}`;
+💎 總鑽石：💎${fmt(totalWorst)} / 💎${fmt(totalBest)}`;
 
   await client.replyMessage(event.replyToken, {
     type: "text",
